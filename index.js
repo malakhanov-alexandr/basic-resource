@@ -116,14 +116,32 @@ module.exports = function (Model, options, ChildPath) {
 
   function validate(res, body) {
     var data = body;
-    if (typeof options.validator === "function") {
+    if (typeof options.validate === "function") {
       try {
-        data = options.validator(data);
+        data = options.validate(data);
       } catch (ex) {
         return common.handleError(res, ex.message, 400);
       }
     }
     return data;
+  }
+
+  function formatOne(item) {
+    return typeof options.format === "function" ? options.format(item) : item;
+  }
+
+  function format(items) {
+    if (typeof options.format !== "function") {
+      return items;
+    }
+    var resultItems = [];
+    for (var i in items) {
+      var item = options.format(items[i]);
+      if (item) {
+        resultItems.push(item);
+      }
+    }
+    return resultItems;
   }
 
   // ---- CREATE_NEW
@@ -154,7 +172,11 @@ module.exports = function (Model, options, ChildPath) {
           handleErrors(err, Model.modelName, doc, res, function () {
             var current = getSub(req, doc);
             handleErrors(null, ChildPath[ChildPath.length - 1], current, res, function () {
-              return common.handleSuccess(res, current);
+              var formatted = formatOne(current);
+              if(!formatted) {
+                return common.handleError(res, "You can't get this " + Model.modelName, 400);
+              }
+              return common.handleSuccess(res, formatted);
             });
           });
         });
@@ -165,7 +187,11 @@ module.exports = function (Model, options, ChildPath) {
       checkParam(req, res, modelIdParamName, function (id) {
         Model.findById(id, fieldLimitOptions(req)).lean().exec(function (err, doc) {
           handleErrors(err, Model.modelName, doc, res, function () {
-            return common.handleSuccess(res, doc);
+            var formatted = formatOne(doc);
+            if(!formatted) {
+              return common.handleError(res, "You can't get this " + Model.modelName, 400);
+            }
+            return common.handleSuccess(res, formatted);
           });
         });
       });
@@ -179,7 +205,7 @@ module.exports = function (Model, options, ChildPath) {
       checkParam(req, res, modelIdParamName, function (id) {
         Model.findById(id, function (err, doc) {
           handleErrors(err, Model.modelName, doc, res, function () {
-            return common.handleSuccess(res, getSubs(req, doc));
+            return common.handleSuccess(res, format(getSubs(req, doc)));
           });
         });
       });
@@ -190,7 +216,7 @@ module.exports = function (Model, options, ChildPath) {
         if (err) {
           return common.handleError(res, err, 400);
         }
-        return common.handleSuccess(res, result);
+        return common.handleSuccess(res, format(result));
       });
     }
   }
