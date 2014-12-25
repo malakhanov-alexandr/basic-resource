@@ -46,6 +46,10 @@ Basic urls to be register:
 
 [http://your-app-host/clients/:clientId]() - `DELETE` - to delete user
 
+You can pass additional query params:
+
+Paramether `fields` will limit fields in result documents to specified. For example you can get `/clients?fields=_id,create` to only get `_id` and `create` fields of all clients
+
 ## Modify controller default methods
 
 To replace methods use:
