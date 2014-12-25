@@ -172,7 +172,7 @@ module.exports = function (Model, resourceOptions, ChildPath) {
   if (ChildPath) {
     Controller.findById = function (req, res) {
       checkParam(req, res, modelIdParamName, function (id) {
-        Model.findById(id, function (err, doc) {
+        Model.findById(id, fieldLimitOptions(req), function (err, doc) {
           handleErrors(err, Model.modelName, doc, res, function () {
             var current = getSub(req, doc);
             handleErrors(null, ChildPath[ChildPath.length - 1], current, res, function () {
@@ -207,7 +207,7 @@ module.exports = function (Model, resourceOptions, ChildPath) {
   if (ChildPath) {
     Controller.findAll = function (req, res) {
       checkParam(req, res, modelIdParamName, function (id) {
-        Model.findById(id, function (err, doc) {
+        Model.findById(id, fieldLimitOptions(req), function (err, doc) {
           handleErrors(err, Model.modelName, doc, res, function () {
             return common.handleSuccess(res, format(getSubs(req, doc)));
           });
