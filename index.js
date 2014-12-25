@@ -9,17 +9,21 @@ var common = require("./common.js");
  * @returns {Object} resource object
  */
 module.exports = function (Model, resourceOptions, ChildPath) {
-  
+
   var defaultOptions = {};
-  
+
   var options = underscore.extend(underscore.clone(defaultOptions), resourceOptions);
 
   var Controller = {};
+  var currentSchema = Model.schema.tree;
   var modelIdParamName = getModelIdParamName(Model.modelName);
   var paramNames;
   if (ChildPath) {
     paramNames = underscore.map(ChildPath, function (element) {
       return getModelIdParamName(element.replace(/s$/, ''));
+    });
+    ChildPath.forEach(function(element) {
+      currentSchema = currentSchema[element][0].tree;
     });
   }
 
@@ -41,7 +45,7 @@ module.exports = function (Model, resourceOptions, ChildPath) {
     var fields = {};
     if (typeof req.query.fields === "string") {
       req.query.fields.split(/,\s*/).forEach(function (field) {
-        if (typeof Model.schema.paths[field] !== "undefined") {
+        if (typeof currentSchema[field] !== "undefined") {
           fields[field] = 1;
         }
       });
@@ -130,21 +134,30 @@ module.exports = function (Model, resourceOptions, ChildPath) {
     return data;
   }
 
-  function formatOne(item) {
-    return typeof options.format === "function" ? options.format(item) : item;
+  function filterItem(item, fields) {
+    if (!fields) {
+      return item;
+    }
+    var keys = underscore.keys(fields);
+    if (!keys.length) {
+      return item;
+    }
+    keys.unshift("_id");
+    return underscore.pick(item, keys);
   }
 
-  function format(items) {
-    if (typeof options.format !== "function") {
-      return items;
-    }
+  function formatOne(item, fields) {
+    return filterItem(typeof options.format === "function" ? options.format(item) : item, fields);
+  }
+
+  function format(items, fields) {
     var resultItems = [];
-    for (var i in items) {
-      var item = options.format(items[i]);
-      if (item) {
-        resultItems.push(item);
+    items.forEach(function(item) {
+      var filtered = formatOne(item, fields);
+      if (filtered) {
+        resultItems.push(filtered);
       }
-    }
+    });
     return resultItems;
   }
 
@@ -172,12 +185,12 @@ module.exports = function (Model, resourceOptions, ChildPath) {
   if (ChildPath) {
     Controller.findById = function (req, res) {
       checkParam(req, res, modelIdParamName, function (id) {
-        Model.findById(id, fieldLimitOptions(req), function (err, doc) {
+        Model.findById(id, function (err, doc) {
           handleErrors(err, Model.modelName, doc, res, function () {
             var current = getSub(req, doc);
             handleErrors(null, ChildPath[ChildPath.length - 1], current, res, function () {
-              var formatted = formatOne(current);
-              if(!formatted) {
+              var formatted = formatOne(current, fieldLimitOptions(req));
+              if (!formatted) {
                 return common.handleError(res, "You can't get this " + Model.modelName, 400);
               }
               return common.handleSuccess(res, formatted);
@@ -192,7 +205,7 @@ module.exports = function (Model, resourceOptions, ChildPath) {
         Model.findById(id, fieldLimitOptions(req)).lean().exec(function (err, doc) {
           handleErrors(err, Model.modelName, doc, res, function () {
             var formatted = formatOne(doc);
-            if(!formatted) {
+            if (!formatted) {
               return common.handleError(res, "You can't get this " + Model.modelName, 400);
             }
             return common.handleSuccess(res, formatted);
@@ -207,9 +220,9 @@ module.exports = function (Model, resourceOptions, ChildPath) {
   if (ChildPath) {
     Controller.findAll = function (req, res) {
       checkParam(req, res, modelIdParamName, function (id) {
-        Model.findById(id, fieldLimitOptions(req), function (err, doc) {
+        Model.findById(id, function (err, doc) {
           handleErrors(err, Model.modelName, doc, res, function () {
-            return common.handleSuccess(res, format(getSubs(req, doc)));
+            return common.handleSuccess(res, format(getSubs(req, doc), fieldLimitOptions(req)));
           });
         });
       });
