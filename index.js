@@ -4,9 +4,11 @@ var common = require("./common.js");
 /**
  * Get new resource controller
  * @param Model Mongoose model for resource to work with
+ * @param options Resource options
  * @param {String[]} ChildPath Array of sub collection path. Registering with this param as array will result in sub resource REST path generation and usege of model sub collection in controller methods. Pass null or undefined if resource working with collection rether then with sub. Example: for model house { people: [{name: String, closes: [{ color: String }] }] } path for people will be ["people"] and for closes will be ["people", "closes"].
+ * @returns {Object} resource object
  */
-module.exports = function (Model, ChildPath) {
+module.exports = function (Model, options, ChildPath) {
 
   var Controller = {};
   var modelIdParamName = getModelIdParamName(Model.modelName);
@@ -86,7 +88,7 @@ module.exports = function (Model, ChildPath) {
   }
 
   /**
-   * Get document from sub document model. See {@link #getSubs}
+   * Get document from sub document model. See {@link getSubs}
    * @param req Request
    * @param doc Model document
    * @returns {*} sub document model
@@ -103,13 +105,25 @@ module.exports = function (Model, ChildPath) {
     callback(param);
   }
 
-  function saveDoc(req, res, doc) {
+  function saveDoc(res, doc) {
     doc.save(function (err, doc) {
       if (err) {
         return common.handleError(res, err, 400);
       }
       return common.handleSuccess(res, doc);
     });
+  }
+
+  function validate(res, body) {
+    var data = body;
+    if (typeof options.validator === "function") {
+      try {
+        data = options.validator(data);
+      } catch (ex) {
+        return common.handleError(res, ex.message, 400);
+      }
+    }
+    return data;
   }
 
   // ---- CREATE_NEW
@@ -119,15 +133,15 @@ module.exports = function (Model, ChildPath) {
       checkParam(req, res, modelIdParamName, function (id) {
         Model.findById(id, function (err, doc) {
           handleErrors(err, Model.modelName, doc, res, function () {
-            getSubs(req, doc).push(req.body);
-            saveDoc(req, res, doc);
+            getSubs(req, doc).push(validate(res, req.body));
+            saveDoc(res, doc);
           });
         });
       });
     };
   } else {
     Controller.createNew = function (req, res) {
-      saveDoc(req, res, new Model(req.body));
+      saveDoc(res, new Model(validate(res, req.body)));
     };
   }
 
@@ -186,11 +200,11 @@ module.exports = function (Model, ChildPath) {
   var updateDocumentByRequest;
   if (ChildPath) {
     updateDocumentByRequest = function (req, doc) {
-      return undescore.extend(getSubs(req, doc), req.body);
+      return undescore.extend(getSubs(req, doc), validate(res, req.body));
     }
   } else {
     updateDocumentByRequest = function (req, doc) {
-      return undescore.extend(doc, req.body);
+      return undescore.extend(doc, validate(res, req.body));
     }
   }
 
@@ -204,7 +218,7 @@ module.exports = function (Model, ChildPath) {
     Model.findById(id, function (err, doc) {
       handleErrors(err, Model.modelName, doc, res, function () {
         updateDocumentByRequest(req, doc);
-        saveDoc(req, res, doc);
+        saveDoc(res, doc);
       })
     });
   };
