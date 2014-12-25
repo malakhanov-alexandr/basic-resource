@@ -1,20 +1,24 @@
-var undescore = require("underscore");
+var underscore = require("underscore");
 var common = require("./common.js");
 
 /**
  * Get new resource controller
  * @param Model Mongoose model for resource to work with
- * @param options Resource options
+ * @param resourceOptions Resource options
  * @param {String[]} ChildPath Array of sub collection path. Registering with this param as array will result in sub resource REST path generation and usege of model sub collection in controller methods. Pass null or undefined if resource working with collection rether then with sub. Example: for model house { people: [{name: String, closes: [{ color: String }] }] } path for people will be ["people"] and for closes will be ["people", "closes"].
  * @returns {Object} resource object
  */
-module.exports = function (Model, options, ChildPath) {
+module.exports = function (Model, resourceOptions, ChildPath) {
+  
+  var defaultOptions = {};
+  
+  var options = underscore.extend(underscore.clone(defaultOptions), resourceOptions);
 
   var Controller = {};
   var modelIdParamName = getModelIdParamName(Model.modelName);
   var paramNames;
   if (ChildPath) {
-    paramNames = undescore.map(ChildPath, function (element) {
+    paramNames = underscore.map(ChildPath, function (element) {
       return getModelIdParamName(element.replace(/s$/, ''));
     });
   }
@@ -226,11 +230,11 @@ module.exports = function (Model, options, ChildPath) {
   var updateDocumentByRequest;
   if (ChildPath) {
     updateDocumentByRequest = function (req, doc) {
-      return undescore.extend(getSubs(req, doc), validate(res, req.body));
+      return underscore.extend(getSubs(req, doc), validate(res, req.body));
     }
   } else {
     updateDocumentByRequest = function (req, doc) {
-      return undescore.extend(doc, validate(res, req.body));
+      return underscore.extend(doc, validate(res, req.body));
     }
   }
 
