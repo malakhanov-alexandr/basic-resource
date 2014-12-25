@@ -22,7 +22,7 @@ module.exports = function (Model, resourceOptions, ChildPath) {
     paramNames = underscore.map(ChildPath, function (element) {
       return getModelIdParamName(element.replace(/s$/, ''));
     });
-    ChildPath.forEach(function(element) {
+    ChildPath.forEach(function (element) {
       currentSchema = currentSchema[element][0].tree;
     });
   }
@@ -105,6 +105,13 @@ module.exports = function (Model, resourceOptions, ChildPath) {
     return getSubs(req, doc).id(req.params[paramNames[ChildPath.length - 1]]);
   }
 
+  /**
+   * Require path parameter to exist
+   * @param req Request
+   * @param res Result
+   * @param name Param name
+   * @param callback Function to call if parameter set
+   */
   function checkParam(req, res, name, callback) {
     var param = req.params[name];
     if (!param) {
@@ -113,6 +120,11 @@ module.exports = function (Model, resourceOptions, ChildPath) {
     callback(param);
   }
 
+  /**
+   * Save document
+   * @param res Request
+   * @param doc Mongoose document
+   */
   function saveDoc(res, doc) {
     doc.save(function (err, doc) {
       if (err) {
@@ -122,6 +134,12 @@ module.exports = function (Model, resourceOptions, ChildPath) {
     });
   }
 
+  /**
+   * Validate value object (calling options.validate and handles errors)
+   * @param res Resule
+   * @param body Value object
+   * @returns {*} Validated value object
+   */
   function validate(res, body) {
     var data = body;
     if (typeof options.validate === "function") {
@@ -134,7 +152,13 @@ module.exports = function (Model, resourceOptions, ChildPath) {
     return data;
   }
 
-  function filterItem(item, fields) {
+  /**
+   * Limit item (document or value object) props
+   * @param item Item to limit
+   * @param fields Fields limit config {@see fieldLimitOptions}
+   * @returns {*} limit result
+   */
+  function limitItem(item, fields) {
     if (!fields) {
       return item;
     }
@@ -146,13 +170,25 @@ module.exports = function (Model, resourceOptions, ChildPath) {
     return underscore.pick(item, keys);
   }
 
+  /**
+   * Format document (calls options.format)
+   * @param item Item to format
+   * @param fields Fields limit config {@see fieldLimitOptions}
+   * @returns {*} format result
+   */
   function formatOne(item, fields) {
-    return filterItem(typeof options.format === "function" ? options.format(item) : item, fields);
+    return limitItem(typeof options.format === "function" ? options.format(item) : item, fields);
   }
 
+  /**
+   * Format list of documents (calls options.format and will exclude bad format results from list)
+   * @param items Items list to format
+   * @param fields Fields limit config {@see fieldLimitOptions}
+   * @returns {Array} list format result
+   */
   function format(items, fields) {
     var resultItems = [];
-    items.forEach(function(item) {
+    items.forEach(function (item) {
       var filtered = formatOne(item, fields);
       if (filtered) {
         resultItems.push(filtered);
