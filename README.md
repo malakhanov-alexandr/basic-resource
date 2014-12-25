@@ -6,8 +6,18 @@ Easy registration on basic REST resources on your Express/mongo node application
 
 ## install
 
+Install by command line:
+
 ```sh
-$ npm install -g bower
+$ npm install basic-resource
+```
+
+Or add to your package.json:
+
+```json
+{
+    "basic-resource": "^0.1.1"
+}
 ```
 
 In your resource source add:
@@ -41,15 +51,32 @@ Basic urls to be register:
 To replace methods use:
 
 ```js
-var controller = require("basic-resource")(Client);
-controller.createNew = function(req, res) {
+var resource = require("basic-resource")(Client);
+resource.controller.createNew = function(req, res) {
     res.statusCode = 406;
     return res.json({
       message: "you currently can't create new users"
     });
 }
+resource(app, "/api", "client", "clients");
 ```
 
-* register simple routes and bind it to basic controller in one code line
-* 
+## Configure generated controller
+
+You can pass options to controller generator:
+
+```js
+var resource = require("basic-resource")(Client, {
+    validate: function(data) {
+        return data.match(/[0-9A-F]+/i);
+    },
+    format: function(data) {
+        if(data.index > 10) {
+            return {index: "more then 10"};
+        }
+        return null;
+    }
+});
+```
+
 
