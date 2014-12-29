@@ -69,7 +69,7 @@ module.exports = function (app, model, resourceOptions) {
     var fields = {};
     if (typeof req.query.fields === "string") {
       req.query.fields.split(/,\s*/).forEach(function (field) {
-        if (typeof resource.schema[field] !== "undefined") {
+        if (typeof resource.schema.paths[field] !== "undefined") {
           fields[field] = 1;
         }
       });
@@ -258,7 +258,7 @@ module.exports = function (app, model, resourceOptions) {
       };
     } else {
       controller.index = function (req, res) {
-        model.find({}, {}, {skip: req.query.start, limit: req.query.length}).lean().exec(function (err, result) {
+        model.find({}, fieldLimitOptions(req, resource), {skip: req.query.start, limit: req.query.length}).lean().exec(function (err, result) {
           if (err) {
             return common.handleError(res, err, 400);
           }
