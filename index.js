@@ -261,10 +261,18 @@ module.exports = function (app, model, resourceOptions) {
       };
     } else {
       controller.index = function (req, res) {
-        model.find({}, fieldLimitOptions(req, resource), {
+        var queryOptions = {
           skip: req.query.start,
           limit: req.query.length
-        }).lean().exec(function (err, result) {
+        };
+        if (req.query.order) {
+          queryOptions.sort = {};
+          req.query.order.forEach(function(order) {
+            queryOptions.sort[req.query.columns[order.column].data] = order.dir === "desc" ? -1 : 1;
+          });
+          
+        }
+        model.find({}, fieldLimitOptions(req, resource), queryOptions).lean().exec(function (err, result) {
           if (err) {
             return common.handleError(res, err, 400);
           }
