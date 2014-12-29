@@ -1,39 +1,60 @@
 var underscore = require("underscore");
 var common = require("./common.js");
+var mongoose = require('mongoose');
+
+var defaultOptions = {};
+
+function NotFoundError() {
+  var tmp = Error.apply(this, arguments);
+  tmp.name = this.name = 'NotFoundError';
+  this.message = tmp.message;
+  Object.defineProperty(this, 'stack', {
+    get: function () {
+      return tmp.stack
+    }
+  });
+  return this;
+}
 
 /**
  * Get new resource controller
- * @param Model Mongoose model for resource to work with
+ * @param model Mongoose model for resource to work with
  * @param resourceOptions Resource options
- * @param {String[]} ChildPath Array of sub collection path. Registering with this param as array will result in sub resource REST path generation and usege of model sub collection in controller methods. Pass null or undefined if resource working with collection rether then with sub. Example: for model house { people: [{name: String, closes: [{ color: String }] }] } path for people will be ["people"] and for closes will be ["people", "closes"].
  * @returns {Object} resource object
  */
-module.exports = function (Model, resourceOptions, ChildPath) {
-
-  var defaultOptions = {};
+module.exports = function (app, model, resourceOptions) {
 
   var options = underscore.extend(underscore.clone(defaultOptions), resourceOptions);
 
-  var Controller = {};
-  var currentSchema = Model.schema.tree;
-  var modelIdParamName = getModelIdParamName(Model.modelName);
-  var paramNames;
-  if (ChildPath) {
-    paramNames = underscore.map(ChildPath, function (element) {
-      return getModelIdParamName(element.replace(/s$/, ''));
-    });
-    ChildPath.forEach(function (element) {
-      currentSchema = currentSchema[element][0].tree;
-    });
-  }
+  var resources = findSubDocuments(model.schema, [options.name]);
+  resources.unshift({
+    path: [options.name]
+  });
 
-  /**
-   * Get ID path param name based on model name
-   * @param modelName Model name
-   * @returns {string} Path param name
-   */
-  function getModelIdParamName(modelName) {
-    return modelName.substr(0, 1).toLowerCase() + modelName.substr(1) + "Id";
+  resources.forEach(function (resource) {
+    resource.ids = [];
+    resource.path.forEach(function (resourceName) {
+      resource.ids.push(resourceName.replace(/e?s$/, "") + "Id");
+    });
+    resource.schema = model.schema;
+    resource.controller = getController(resource);
+    bindResource(resource);
+  });
+
+  return resources;
+
+  function findSubDocuments(schema, path) {
+    var children = [], tree = schema.tree;
+    for (var i in tree) {
+      var value = tree[i];
+      if (value instanceof Array && value.length === 1 && value[0].constructor.name === "Schema") {
+        var elementPath = underscore.clone(path);
+        elementPath.push(i);
+        children.push({path: elementPath, schema: value[0]});
+        Array.prototype.push.apply(children, findSubDocuments(value[0], elementPath));
+      }
+    }
+    return children;
   }
 
   /**
@@ -41,11 +62,11 @@ module.exports = function (Model, resourceOptions, ChildPath) {
    * Example: "?fields=_id,email" will genearate options { _id: 1, email: 1}, that limit result document to { _id:"...", email: "..."}
    * @param req Request object
    */
-  function fieldLimitOptions(req) {
+  function fieldLimitOptions(req, resource) {
     var fields = {};
     if (typeof req.query.fields === "string") {
       req.query.fields.split(/,\s*/).forEach(function (field) {
-        if (typeof currentSchema[field] !== "undefined") {
+        if (typeof resource.schema[field] !== "undefined") {
           fields[field] = 1;
         }
       });
@@ -75,49 +96,52 @@ module.exports = function (Model, resourceOptions, ChildPath) {
   /**
    * Get sub sub document list model based on values of IDs from req and model document.
    * Param path configured by ChildPath.
-   * @param req Request
+   * @param params Request path params
+   * @param resource Resource
    * @param doc Model document
    * @returns {*} sub document list model
    */
-  function getSubs(req, doc) {
+  function getSubs(params, resource, doc) {
     var current = doc;
-    var last = ChildPath.length - 1;
-    for (var i = 0; i < last; i++) {
-      var id = req.params[paramNames[i]];
-      if (!id) {
-        return common.handleNoParam(res, modelIdParamName);
-      }
-      current = doc[ChildPath[i]].id(id);
+    var last = resource.path.length - 1;
+    for (var i = 1; i < last; i++) {
+      current = current[resource.path[i]].id(params[i]);
       if (!current) {
-        return common.handleError(res, paramNames[i] + " not found", 404);
+        throw new NotFoundError(resource.path[i]);
       }
     }
-    return current[ChildPath[ChildPath.length - 1]];
+    return current[resource.path[last]];
   }
 
   /**
    * Get document from sub document model. See {@link getSubs}
-   * @param req Request
+   * @param params Request path params
+   * @param resource Resource
    * @param doc Model document
    * @returns {*} sub document model
    */
-  function getSub(req, doc) {
-    return getSubs(req, doc).id(req.params[paramNames[ChildPath.length - 1]]);
+  function getSub(params, resource, doc) {
+    return getSubs(params, resource, doc).id(params[params.length - 1]);
   }
 
   /**
    * Require path parameter to exist
    * @param req Request
    * @param res Result
-   * @param name Param name
+   * @param resource Resource
+   * @param paramsCount Limits count of checked parameters
    * @param callback Function to call if parameter set
    */
-  function checkParam(req, res, name, callback) {
-    var param = req.params[name];
-    if (!param) {
-      return common.handleNoParam(res, name);
+  function checkParams(req, res, resource, paramsCount, callback) {
+    var params = [];
+    for (var i = 0; i < paramsCount; i++) {
+      var param = req.params[resource.ids[i]];
+      if (!param) {
+        return common.handleNoParam(res, resource.ids[i]);
+      }
+      params.push(param);
     }
-    callback(param);
+    callback(params);
   }
 
   /**
@@ -197,35 +221,66 @@ module.exports = function (Model, resourceOptions, ChildPath) {
     return resultItems;
   }
 
-  // ---- CREATE_NEW
+  function getController(resource) {
 
-  if (ChildPath) {
-    Controller.createNew = function (req, res) {
-      checkParam(req, res, modelIdParamName, function (id) {
-        Model.findById(id, function (err, doc) {
-          handleErrors(err, Model.modelName, doc, res, function () {
-            getSubs(req, doc).push(validate(res, req.body));
-            saveDoc(res, doc);
+    var controller = {};
+
+    if (resource.ids.length > 1) {
+      controller.index = function (req, res) {
+        checkParams(req, res, resource, resource.path.length - 1, function (params) {
+          model.findById(params[0], function (err, doc) {
+            handleErrors(err, resource.ids[0], doc, res, function () {
+              var result;
+              try {
+                result = getSubs(params, resource, doc);
+              } catch (ex) {
+                if (!(ex instanceof NotFoundError)) {
+                  throw ex;
+                }
+                return common.handleError(res, ex.message + " not found", 404);
+              }
+              return common.handleSuccess(res, format(result, fieldLimitOptions(req, resource)));
+            });
           });
         });
-      });
-    };
-  } else {
-    Controller.createNew = function (req, res) {
-      saveDoc(res, new Model(validate(res, req.body)));
-    };
-  }
+      };
+    } else {
+      controller.index = function (req, res) {
+        model.find({}).lean().exec(function (err, result) {
+          if (err) {
+            return common.handleError(res, err, 400);
+          }
+          return common.handleSuccess(res, format(result, null));
+        });
+      };
+    }
 
-  // ---- FIND_BY_ID
 
-  if (ChildPath) {
-    Controller.findById = function (req, res) {
-      checkParam(req, res, modelIdParamName, function (id) {
-        Model.findById(id, function (err, doc) {
-          handleErrors(err, Model.modelName, doc, res, function () {
-            var current = getSub(req, doc);
-            handleErrors(null, ChildPath[ChildPath.length - 1], current, res, function () {
-              var formatted = formatOne(current, fieldLimitOptions(req));
+    if (resource.ids.length > 1) {
+      controller.show = function (req, res) {
+        checkParams(req, res, resource, resource.path.length, function (params) {
+          model.findById(params[0], function (err, doc) {
+            handleErrors(err, resource.ids[0], doc, res, function () {
+              var result;
+              try {
+                result = getSub(params, resource, doc);
+              } catch (ex) {
+                if (!(ex instanceof NotFoundError)) {
+                  throw ex;
+                }
+                return common.handleError(res, ex.message + " not found", 404);
+              }
+              return common.handleSuccess(res, formatOne(result, fieldLimitOptions(req, resource)));
+            });
+          });
+        });
+      };
+    } else {
+      controller.show = function (req, res) {
+        checkParams(req, res, resource, resource.path.length, function (params) {
+          model.findById(params[0], fieldLimitOptions(req, resource)).lean().exec(function (err, doc) {
+            handleErrors(err, model.modelName, doc, res, function () {
+              var formatted = formatOne(doc);
               if (!formatted) {
                 return common.handleError(res, "You can't get this " + Model.modelName, 400);
               }
@@ -233,98 +288,94 @@ module.exports = function (Model, resourceOptions, ChildPath) {
             });
           });
         });
-      });
+      };
     }
-  } else {
-    Controller.findById = function (req, res) {
-      checkParam(req, res, modelIdParamName, function (id) {
-        Model.findById(id, fieldLimitOptions(req)).lean().exec(function (err, doc) {
-          handleErrors(err, Model.modelName, doc, res, function () {
-            var formatted = formatOne(doc);
-            if (!formatted) {
-              return common.handleError(res, "You can't get this " + Model.modelName, 400);
-            }
-            return common.handleSuccess(res, formatted);
+
+
+    if (resource.ids.length > 1) {
+      controller.create = function (req, res) {
+        checkParams(req, res, resource, resource.path.length - 1, function (params) {
+          model.findById(params[0], function (err, doc) {
+            handleErrors(err, model.modelName, doc, res, function () {
+              var schema = getSubs(params, resource, doc);
+              var validated = validate(res, req.body);
+              schema.push(validated);
+              return saveDoc(res, doc);
+            });
           });
         });
-      });
+      };
+    } else {
+      controller.create = function (req, res) {
+        return saveDoc(res, new model(validate(res, req.body)));
+      };
     }
-  }
 
-  // ---- FIND_ALL
 
-  if (ChildPath) {
-    Controller.findAll = function (req, res) {
-      checkParam(req, res, modelIdParamName, function (id) {
-        Model.findById(id, function (err, doc) {
-          handleErrors(err, Model.modelName, doc, res, function () {
-            return common.handleSuccess(res, format(getSubs(req, doc), fieldLimitOptions(req)));
+    if (resource.ids.length > 1) {
+      controller.update = function (req, res) {
+        checkParams(req, res, resource, resource.path.length, function (params) {
+          model.findById(params[0], function (err, doc) {
+            handleErrors(err, resource.ids[0], doc, res, function () {
+              underscore.extend(getSub(params, resource, doc), validate(res, req.body));
+              return saveDoc(res, doc);
+            });
           });
         });
-      });
+      };
+    } else {
+      controller.update = function (req, res) {
+        checkParams(req, res, resource, resource.path.length, function (params) {
+          model.findById(params[0], function (err, doc) {
+            return saveDoc(res, underscore.extend(doc, validate(res, req.body)));
+          });
+        });
+      };
     }
-  } else {
-    Controller.findAll = function (req, res) {
-      Model.find({}, fieldLimitOptions(req)).lean().exec(function (err, result) {
-        if (err) {
-          return common.handleError(res, err, 400);
-        }
-        return common.handleSuccess(res, format(result));
-      });
+
+
+    if (resource.ids.length > 1) {
+      controller.delete = function (req, res) {
+        checkParams(req, res, resource, resource.path.length, function (params) {
+          model.findById(params[0], function (err, doc) {
+            handleErrors(err, resource.ids[0], doc, res, function () {
+              getSub(params, resource, doc).remove();
+              return saveDoc(res, doc);
+            });
+          });
+        });
+      };
+    } else {
+      controller.delete = function (req, res) {
+        checkParams(req, res, resource, resource.path.length, function (params) {
+          model.findOneAndRemove(params[0], function (err, doc) {
+            return common.handleSuccess(res);
+          });
+        });
+      };
     }
+
+    return controller;
   }
 
-  // ---- UPDATE
+  function bindResource(resource) {
 
-  var updateDocumentByRequest;
-  if (ChildPath) {
-    updateDocumentByRequest = function (req, doc) {
-      return underscore.extend(getSubs(req, doc), validate(res, req.body));
-    }
-  } else {
-    updateDocumentByRequest = function (req, doc) {
-      return underscore.extend(doc, validate(res, req.body));
-    }
-  }
+    var prefix = options.context + '/',
+      lastPathIndex = resource.path.length - 1,
+      lastPathName = resource.path[lastPathIndex],
+      lastId = resource.ids[lastPathIndex];
 
-  Controller.update = function (req, res) {
-
-    var id = req.params[modelIdParamName];
-    if (!id) {
-      return common.handleNoParam(res, modelIdParamName);
+    for (var i = 0; i < lastPathIndex; i++) {
+      prefix += resource.path[i] + '/:' + resource.ids[i] + '/';
     }
 
-    Model.findById(id, function (err, doc) {
-      handleErrors(err, Model.modelName, doc, res, function () {
-        updateDocumentByRequest(req, doc);
-        saveDoc(res, doc);
-      })
-    });
-  };
+    app.route(prefix + lastPathName).get(resource.controller.index);
+    app.route(prefix + lastPathName).post(resource.controller.create);
+    app.route(prefix + lastPathName + '/:' + lastId).get(resource.controller.show);
+    app.route(prefix + lastPathName + '/:' + lastId).put(resource.controller.update);
+    app.route(prefix + lastPathName + '/:' + lastId).delete(resource.controller.delete);
 
-  // ---- REMOVE
-
-  if (ChildPath) {
-    Controller.remove = function (req, res) {
-      checkParam(req, res, modelIdParamName, function (id) {
-        Model.findById(id, function (err, doc) {
-          handleErrors(err, Model.modelName, doc, res, function () {
-            getSub(req, doc).remove();
-            return common.handleSuccess(res);
-          })
-        });
-      });
-    }
-  } else {
-    Controller.remove = function (req, res) {
-      checkParam(req, res, modelIdParamName, function (id) {
-        Model.findOneAndRemove({_id: id}, function (err, doc) {
-          handleErrors(err, Model.modelName, doc, res, function () {
-            return common.handleSuccess(res);
-          })
-        });
-      });
-    }
+    return resource;
   }
 
   /**
@@ -338,21 +389,6 @@ module.exports = function (Model, resourceOptions, ChildPath) {
    */
   var registerRoutes = function (app, contextPath, resourceName, resourceNamePlural, parents) {
 
-    var prefix = contextPath + '/';
-
-    if (typeof parents !== "undefined") {
-      parents.forEach(function (parent) {
-        prefix += parent.plural + '/:' + parent.name + 'Id/';
-      });
-    }
-
-    app.route(prefix + resourceNamePlural).post(Controller.createNew);
-    app.route(prefix + resourceNamePlural).get(Controller.findAll);
-    app.route(prefix + resourceNamePlural + '/:' + resourceName + 'Id').get(Controller.findById);
-    app.route(prefix + resourceNamePlural + '/:' + resourceName + 'Id').put(Controller.update);
-    app.route(prefix + resourceNamePlural + '/:' + resourceName + 'Id').delete(Controller.remove);
-
-    return Controller;
   };
 
   registerRoutes.controller = Controller;
