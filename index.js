@@ -38,6 +38,9 @@ module.exports = function (app, model, resourceOptions) {
     });
     resource.schema = model.schema;
     resource.controller = getController(resource);
+    if(options.controller) {
+      underscore.extend(resource.controller, options.controller);
+    }
     bindResource(resource);
   });
 
@@ -257,7 +260,7 @@ module.exports = function (app, model, resourceOptions) {
 
 
     if (resource.ids.length > 1) {
-      controller.show = function (req, res) {
+      controller.one = function (req, res) {
         checkParams(req, res, resource, resource.path.length, function (params) {
           model.findById(params[0], function (err, doc) {
             handleErrors(err, resource.ids[0], doc, res, function () {
@@ -276,7 +279,7 @@ module.exports = function (app, model, resourceOptions) {
         });
       };
     } else {
-      controller.show = function (req, res) {
+      controller.one = function (req, res) {
         checkParams(req, res, resource, resource.path.length, function (params) {
           model.findById(params[0], fieldLimitOptions(req, resource)).lean().exec(function (err, doc) {
             handleErrors(err, model.modelName, doc, res, function () {
@@ -396,7 +399,7 @@ module.exports = function (app, model, resourceOptions) {
 
     app.route(prefix + lastPathName).get(resource.controller.index);
     app.route(prefix + lastPathName).post(resource.controller.create);
-    app.route(prefix + lastPathName + '/:' + lastId).get(resource.controller.show);
+    app.route(prefix + lastPathName + '/:' + lastId).get(resource.controller.one);
     app.route(prefix + lastPathName + '/:' + lastId).put(resource.controller.update);
     app.route(prefix + lastPathName + '/:' + lastId).delete(resource.controller.delete);
 
