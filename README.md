@@ -44,7 +44,7 @@ Basic urls to be register:
 
 [http://your-app-host/clients/:clientId]() - `PUT` to update user (controller method "update")
 
-[http://your-app-host/clients/:clientId]() - `DELETE` - to delete user (controller method "delete")
+[http://your-app-host/clients/:clientId]() - `DELETE` - to delete user (controller method "remove")
 
 You can pass additional query params:
 

@@ -354,7 +354,7 @@ module.exports = function (app, model, resourceOptions) {
 
 
     if (resource.ids.length > 1) {
-      controller.delete = function (req, res) {
+      controller.remove = function (req, res) {
         checkParams(req, res, resource, resource.path.length, function (params) {
           model.findById(params[0], function (err, doc) {
             handleErrors(err, resource.ids[0], doc, res, function () {
@@ -374,7 +374,7 @@ module.exports = function (app, model, resourceOptions) {
         });
       };
     } else {
-      controller.delete = function (req, res) {
+      controller.remove = function (req, res) {
         checkParams(req, res, resource, resource.path.length, function (params) {
           model.findOneAndRemove(params[0], function (err, doc) {
             return common.handleSuccess(res);
@@ -401,7 +401,7 @@ module.exports = function (app, model, resourceOptions) {
     app.route(prefix + lastPathName).post(resource.controller.create);
     app.route(prefix + lastPathName + '/:' + lastId).get(resource.controller.one);
     app.route(prefix + lastPathName + '/:' + lastId).put(resource.controller.update);
-    app.route(prefix + lastPathName + '/:' + lastId).delete(resource.controller.delete);
+    app.route(prefix + lastPathName + '/:' + lastId).delete(resource.controller.remove);
 
     return resource;
   }
