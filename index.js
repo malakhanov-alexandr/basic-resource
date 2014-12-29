@@ -261,18 +261,30 @@ module.exports = function (app, model, resourceOptions) {
       };
     } else {
       controller.index = function (req, res) {
-        var queryOptions = {
+        var queryOptions = { //TODO: make same DT logic for subs
           skip: req.query.start,
           limit: req.query.length
         };
         if (req.query.order) {
           queryOptions.sort = {};
-          req.query.order.forEach(function(order) {
+          req.query.order.forEach(function (order) {
             queryOptions.sort[req.query.columns[order.column].data] = order.dir === "desc" ? -1 : 1;
           });
-          
         }
-        model.find({}, fieldLimitOptions(req, resource), queryOptions).lean().exec(function (err, result) {
+        var query = {};
+        if (req.query.search && req.query.search.value && req.query.columns) {
+          var search = query.$or = [];
+            req.query.columns.forEach(function(field) {
+              var name = field.data;
+              debugger;
+              if (model.schema.tree[name] && model.schema.tree[name].type && model.schema.tree[name].type.name === "String") {
+                var fieldSearch = {};
+                fieldSearch[name] = new RegExp(req.query.search.value, "i");
+                search.push(fieldSearch);
+              }
+            });
+        }
+        model.find(query, fieldLimitOptions(req, resource), queryOptions).lean().exec(function (err, result) {
           if (err) {
             return common.handleError(res, err, 400);
           }
@@ -281,7 +293,7 @@ module.exports = function (app, model, resourceOptions) {
           }
           model.count({}, function (err, count) {
             return common.handleSuccess(res, format(result, null), {
-              recordsFiltered: count,
+              recordsFiltered: result.length,
               recordsTotal: count
             });
           });
