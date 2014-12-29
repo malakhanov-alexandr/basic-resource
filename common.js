@@ -1,3 +1,5 @@
+var underscore = require("underscore");
+
 module.exports.handleError = function handleError(res, message, code) {
   res.statusCode = code || 500;
   return res.json({
@@ -6,8 +8,8 @@ module.exports.handleError = function handleError(res, message, code) {
   });
 };
 
-module.exports.handleSuccess = function (res, data) {
-  var result = {status: 200, message: "success"};
+module.exports.handleSuccess = function (res, data, extra) {
+  var result = underscore.extend({status: 200, message: "success"}, extra);
   if (data) {
     result.data = data;
   }

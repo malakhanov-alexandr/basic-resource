@@ -38,7 +38,7 @@ module.exports = function (app, model, resourceOptions) {
     });
     resource.schema = model.schema;
     resource.controller = getController(resource);
-    if(options.controller) {
+    if (options.controller) {
       underscore.extend(resource.controller, options.controller);
     }
     bindResource(resource);
@@ -125,7 +125,7 @@ module.exports = function (app, model, resourceOptions) {
    */
   function getSub(params, resource, doc) {
     var result = getSubs(params, resource, doc).id(params[params.length - 1]);
-    if(!result) {
+    if (!result) {
       throw new NotFoundError(resource.path[resource.path.length - 1]);
     }
     return result;
@@ -247,22 +247,36 @@ module.exports = function (app, model, resourceOptions) {
                 return common.handleError(res, ex.message + " not found", 404);
               }
               var start = req.query.start,
-                  length = req.query.length;
-              if(start || length) {
+                length = req.query.length;
+              if (start || length) {
                 sub = sub.slice(start ? start : 0, length ? (start + length) : sub.length);
               }
-              return common.handleSuccess(res, format(sub, fieldLimitOptions(req, resource)));
+              return common.handleSuccess(res, format(sub, fieldLimitOptions(req, resource)), {
+                recordsFiltered: sub.length,
+                recordsTotal: sub.length
+              });
             });
           });
         });
       };
     } else {
       controller.index = function (req, res) {
-        model.find({}, fieldLimitOptions(req, resource), {skip: req.query.start, limit: req.query.length}).lean().exec(function (err, result) {
+        model.find({}, fieldLimitOptions(req, resource), {
+          skip: req.query.start,
+          limit: req.query.length
+        }).lean().exec(function (err, result) {
           if (err) {
             return common.handleError(res, err, 400);
           }
-          return common.handleSuccess(res, format(result, null));
+          if (req.query.draw) {
+            result.draw = req.query.draw;
+          }
+          model.count({}, function (err, count) {
+            return common.handleSuccess(res, format(result, null), {
+              recordsFiltered: count,
+              recordsTotal: count
+            });
+          });
         });
       };
     }
