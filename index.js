@@ -378,21 +378,4 @@ module.exports = function (app, model, resourceOptions) {
     return resource;
   }
 
-  /**
-   * Register resource routes
-   * @param app Express app to register into
-   * @param contextPath App context path
-   * @param resourceName Resource name
-   * @param resourceNamePlural Resource name in plural form
-   * @param parents Parent routes list { name:"...", plural:"..." }
-   * @returns {Object} Used controller
-   */
-  var registerRoutes = function (app, contextPath, resourceName, resourceNamePlural, parents) {
-
-  };
-
-  registerRoutes.controller = Controller;
-
-  return registerRoutes;
-
 };
