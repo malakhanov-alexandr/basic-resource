@@ -230,16 +230,16 @@ module.exports = function (app, model, resourceOptions) {
         checkParams(req, res, resource, resource.path.length - 1, function (params) {
           model.findById(params[0], function (err, doc) {
             handleErrors(err, resource.ids[0], doc, res, function () {
-              var result;
+              var sub;
               try {
-                result = getSubs(params, resource, doc);
+                sub = getSubs(params, resource, doc);
               } catch (ex) {
                 if (!(ex instanceof NotFoundError)) {
                   throw ex;
                 }
                 return common.handleError(res, ex.message + " not found", 404);
               }
-              return common.handleSuccess(res, format(result, fieldLimitOptions(req, resource)));
+              return common.handleSuccess(res, format(sub, fieldLimitOptions(req, resource)));
             });
           });
         });
@@ -261,16 +261,16 @@ module.exports = function (app, model, resourceOptions) {
         checkParams(req, res, resource, resource.path.length, function (params) {
           model.findById(params[0], function (err, doc) {
             handleErrors(err, resource.ids[0], doc, res, function () {
-              var result;
+              var sub;
               try {
-                result = getSub(params, resource, doc);
+                sub = getSub(params, resource, doc);
               } catch (ex) {
                 if (!(ex instanceof NotFoundError)) {
                   throw ex;
                 }
                 return common.handleError(res, ex.message + " not found", 404);
               }
-              return common.handleSuccess(res, formatOne(result, fieldLimitOptions(req, resource)));
+              return common.handleSuccess(res, formatOne(sub, fieldLimitOptions(req, resource)));
             });
           });
         });
@@ -297,9 +297,16 @@ module.exports = function (app, model, resourceOptions) {
         checkParams(req, res, resource, resource.path.length - 1, function (params) {
           model.findById(params[0], function (err, doc) {
             handleErrors(err, model.modelName, doc, res, function () {
-              var schema = getSubs(params, resource, doc);
-              var validated = validate(res, req.body);
-              schema.push(validated);
+              var sub;
+              try {
+                sub = getSubs(params, resource, doc);
+              } catch (ex) {
+                if (!(ex instanceof NotFoundError)) {
+                  throw ex;
+                }
+                return common.handleError(res, ex.message + " not found", 404);
+              }
+              sub.push(validate(res, req.body));
               return saveDoc(res, doc);
             });
           });
@@ -317,7 +324,16 @@ module.exports = function (app, model, resourceOptions) {
         checkParams(req, res, resource, resource.path.length, function (params) {
           model.findById(params[0], function (err, doc) {
             handleErrors(err, resource.ids[0], doc, res, function () {
-              underscore.extend(getSub(params, resource, doc), validate(res, req.body));
+              var sub;
+              try {
+                sub = getSub(params, resource, doc);
+              } catch (ex) {
+                if (!(ex instanceof NotFoundError)) {
+                  throw ex;
+                }
+                return common.handleError(res, ex.message + " not found", 404);
+              }
+              underscore.extend(sub, validate(res, req.body));
               return saveDoc(res, doc);
             });
           });
@@ -339,7 +355,16 @@ module.exports = function (app, model, resourceOptions) {
         checkParams(req, res, resource, resource.path.length, function (params) {
           model.findById(params[0], function (err, doc) {
             handleErrors(err, resource.ids[0], doc, res, function () {
-              getSub(params, resource, doc).remove();
+              var sub;
+              try {
+                sub = getSub(params, resource, doc);
+              } catch (ex) {
+                if (!(ex instanceof NotFoundError)) {
+                  throw ex;
+                }
+                return common.handleError(res, ex.message + " not found", 404);
+              }
+              sub.remove();
               return saveDoc(res, doc);
             });
           });
