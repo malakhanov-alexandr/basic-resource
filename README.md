@@ -48,7 +48,7 @@ Basic urls to be register:
 
 You can pass additional query params:
 
-Paramether `fields` will limit fields in result documents to specified. For example you can get `/clients?fields=_id,create` to only get `_id` and `create` fields of all clients
+Parameter `fields` will limit fields in result documents to specified. For example you can get `/clients?fields=_id,create` to only get `_id` and `create` fields of all clients
 
 ## Modify controller default methods
 
