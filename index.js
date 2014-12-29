@@ -124,7 +124,11 @@ module.exports = function (app, model, resourceOptions) {
    * @returns {*} sub document model
    */
   function getSub(params, resource, doc) {
-    return getSubs(params, resource, doc).id(params[params.length - 1]);
+    var result = getSubs(params, resource, doc).id(params[params.length - 1]);
+    if(!result) {
+      throw new NotFoundError(resource.path[resource.path.length - 1]);
+    }
+    return result;
   }
 
   /**
