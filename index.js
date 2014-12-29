@@ -246,6 +246,11 @@ module.exports = function (app, model, resourceOptions) {
                 }
                 return common.handleError(res, ex.message + " not found", 404);
               }
+              var start = req.query.start,
+                  length = req.query.length;
+              if(start || length) {
+                sub = sub.slice(start ? start : 0, length ? (start + length) : sub.length);
+              }
               return common.handleSuccess(res, format(sub, fieldLimitOptions(req, resource)));
             });
           });
@@ -253,7 +258,7 @@ module.exports = function (app, model, resourceOptions) {
       };
     } else {
       controller.index = function (req, res) {
-        model.find({}).lean().exec(function (err, result) {
+        model.find({}, {}, {skip: req.query.start, limit: req.query.length}).lean().exec(function (err, result) {
           if (err) {
             return common.handleError(res, err, 400);
           }

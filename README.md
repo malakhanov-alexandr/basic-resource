@@ -50,6 +50,11 @@ You can pass additional query params:
 
 Parameter `fields` will limit fields in result documents to specified. For example you can get `/clients?fields=_id,create` to only get `_id` and `create` fields of all clients
 
+Parameter `start` will skip first N records of result. For example you can get `/clients?start=10` to get clients from 10'th (can be combined with `length` for pagination)
+
+Parameter `length` will limit result length to N. For example you can get `/clients?length=10` to get only 10 clients (can be combined with `start` for pagination)
+
+
 ## Modify controller default methods
 
 To replace methods use:
