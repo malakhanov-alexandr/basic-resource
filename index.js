@@ -248,6 +248,39 @@ module.exports = function (app, model, resourceOptions) {
     });
     return resultItems;
   }
+  
+  function getDatatableQueryOptions(req) {
+    var queryOptions = {};
+    if(req.query.start) {
+      queryOptions.skip = req.query.start;
+    }
+    if(req.query.length) {
+      queryOptions.limit = req.query.length;
+    }
+    if ( req.query.order ) {
+      queryOptions.sort = {};
+      req.query.order.forEach( function ( order ) {
+        queryOptions.sort[req.query.columns[order.column].data] = order.dir === "desc" ? -1 : 1;
+      } );
+    }
+    return queryOptions;
+  }
+  
+  function getDatatableQueryConstraints(req) {
+    var constraints = {};
+    if ( req.query.search && req.query.search.value && req.query.columns ) {
+      var search = constraints.$or = [];
+      req.query.columns.forEach( function ( field ) {
+        var name = field.data;
+        if ( model.schema.tree[name] && model.schema.tree[name].type && model.schema.tree[name].type.name === "String" ) {
+          var fieldSearch = {};
+          fieldSearch[name] = new RegExp( req.query.search.value, "i" );
+          search.push( fieldSearch );
+        }
+      } );
+    }
+    return constraints;
+  }
 
   function getController(resource) {
 
@@ -377,7 +410,7 @@ module.exports = function (app, model, resourceOptions) {
             var i = 0;
             var limit = {};
             limit[resource.refs[0].field] = 1;
-            var query = model.findById(params[0], limit).exec(queryExec);
+            model.findById(params[0], limit).exec(queryExec);
             
             function queryExec(err, doc) {
               handleErrors(err, model.modelName, doc, res, function () {
@@ -410,30 +443,9 @@ module.exports = function (app, model, resourceOptions) {
 
         controller.index = function (req, res) {
           checkParams(req, res, resource, resource.path.length - 1, function (params) {
-            var queryOptions = { //TODO: make same DT logic for subs
-              skip: req.query.start,
-              limit: req.query.length
-            };
-            if ( req.query.order ) {
-              queryOptions.sort = {};
-              req.query.order.forEach( function ( order ) {
-                queryOptions.sort[req.query.columns[order.column].data] = order.dir === "desc" ? -1 : 1;
-              } );
-            }
-            var query = {};
-            if ( req.query.search && req.query.search.value && req.query.columns ) {
-              var search = query.$or = [];
-              req.query.columns.forEach( function ( field ) {
-                var name = field.data;
-                if ( model.schema.tree[name] && model.schema.tree[name].type && model.schema.tree[name].type.name === "String" ) {
-                  var fieldSearch = {};
-                  fieldSearch[name] = new RegExp( req.query.search.value, "i" );
-                  search.push( fieldSearch );
-                }
-              } );
-            }
-            query[resource.refs[0].field] = new mongoose.Types.ObjectId(params[0]);
-            model.find( query, fieldLimitOptions( req, resource ), queryOptions ).lean().exec( function ( err, result ) {
+            var constraints = getDatatableQueryConstraints(req);
+            constraints[resource.refs[0].field] = new mongoose.Types.ObjectId(params[0]);
+            model.find( constraints, fieldLimitOptions( req, resource ), getDatatableQueryOptions(req) ).lean().exec( function ( err, result ) {
               if ( err ) {
                 return common.handleError( res, err, 400 );
               }
@@ -457,36 +469,15 @@ module.exports = function (app, model, resourceOptions) {
       {
 
         controller.index = function (req, res) {
-          var queryOptions = { //TODO: make same DT logic for subs
-            skip: req.query.start,
-            limit: req.query.length
-          };
-          if (req.query.order) {
-            queryOptions.sort = {};
-            req.query.order.forEach(function (order) {
-              queryOptions.sort[req.query.columns[order.column].data] = order.dir === "desc" ? -1 : 1;
-            });
-          }
-          var query = {};
-          if (req.query.search && req.query.search.value && req.query.columns) {
-            var search = query.$or = [];
-            req.query.columns.forEach(function (field) {
-              var name = field.data;
-              if (model.schema.tree[name] && model.schema.tree[name].type && model.schema.tree[name].type.name === "String") {
-                var fieldSearch = {};
-                fieldSearch[name] = new RegExp(req.query.search.value, "i");
-                search.push(fieldSearch);
-              }
-            });
-          }
-          model.find(query, fieldLimitOptions(req, resource), queryOptions).lean().exec(function (err, result) {
+          var conditions = getDatatableQueryConstraints(req);
+          model.find(conditions, fieldLimitOptions(req, resource), getDatatableQueryOptions(req)).lean().exec(function (err, result) {
             if (err) {
               return common.handleError(res, err, 400);
             }
             if (req.query.draw) {
               result.draw = req.query.draw;
             }
-            model.count(query, function (err, count) {
+            model.count(conditions, function (err, count) {
               return common.handleSuccess(res, format(result, null), {
                 recordsFiltered: result.length,
                 recordsTotal: count
@@ -523,8 +514,10 @@ module.exports = function (app, model, resourceOptions) {
 
         controller.remove = function (req, res) {
           checkParams(req, res, resource, resource.path.length, function (params) {
-            model.findOneAndRemove(params[0], function (err, doc) {
-              return common.handleSuccess(res);
+            model.findOneAndRemove({_id: params[0]}, function (err, doc) {
+              handleErrors(err, model.modelName, doc, res, function () {
+                return common.handleSuccess( res );
+              });
             });
           });
         };
