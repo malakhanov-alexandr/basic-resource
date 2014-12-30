@@ -102,6 +102,7 @@ module.exports = function (app, model, resourceOptions) {
     return fields;
   }
 
+  //TODO: add comments
   /**
    *
    * @param err
@@ -264,7 +265,7 @@ module.exports = function (app, model, resourceOptions) {
     switch (resource.type) {
       case "sub":
       {
-
+        //TODO: populate array of references
         controller.index = function (req, res) {
           checkParams(req, res, resource, resource.path.length - 1, function (params) {
             model.findById(params[0], function (err, doc) {
