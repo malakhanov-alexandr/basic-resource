@@ -49,7 +49,7 @@ module.exports = function (app, model, resourceOptions) {
 
   return resources;
 
-  function findSubDocuments(schema, path) {
+  function findSubDocuments(schema, path, refs) {
     var children = [], tree = schema.tree;
     for (var i in tree) {
       var value = tree[i];
@@ -68,10 +68,13 @@ module.exports = function (app, model, resourceOptions) {
         var refModel = modelCache[value.ref];
         var elementPath = underscore.clone(path);
         elementPath.push(i.replace(/id$/i, ""));
-        children.push({path: elementPath, field: i, schema: refModel.schema, type: "ref"});
-        elementPath = underscore.clone(path);
-        elementPath.unshift(refModel.schema.plural);
-        children.push({path: elementPath, field: i, model: refModel, schema: refModel.schema, type: "backRef"});
+        var elementRefs = underscore.clone(refs ? refs : []);
+        elementRefs.push({field: i, model: refModel});
+        children.push({path: elementPath, refs: elementRefs, schema: refModel.schema, type: "ref"});
+        var backRefElementPath = underscore.clone(path);
+        backRefElementPath.unshift(refModel.schema.plural);
+        children.push({path: backRefElementPath, refs: elementRefs, schema: refModel.schema, type: "backRef"});
+        Array.prototype.push.apply(children, findSubDocuments(refModel.schema, elementPath, elementRefs));
       }
     }
     return children;
@@ -370,19 +373,34 @@ module.exports = function (app, model, resourceOptions) {
       {
 
         controller.index = function (req, res) {
-          checkParams(req, res, resource, resource.path.length - 1, function (params) {
-            var limit = {"_id": 1};
-            limit[resource.field] = 1;
-            model.findById(params[0], limit).populate(resource.field).lean().exec(function (err, doc) {
-              doc = doc[resource.field];
+          checkParams(req, res, resource, 1, function (params) {
+            var i = 0;
+            var limit = {};
+            limit[resource.refs[0].field] = 1;
+            var query = model.findById(params[0], limit).exec(queryExec);
+            
+            function queryExec(err, doc) {
               handleErrors(err, model.modelName, doc, res, function () {
-                var formatted = formatOne(doc, fieldLimitOptions(req, resource));
-                if (!formatted) {
-                  return common.handleError(res, "You can't get this " + resource.path[resource.path.length - 1], 400);
+                var limit = {};
+                var lastRef = i < resource.refs.length - 1;
+                if(lastRef) {
+                  limit[resource.refs[i + 1].field] = 1;
                 }
-                return common.handleSuccess(res, formatted);
+                var query = resource.refs[i].model.findById(doc[resource.refs[i].field], limit);
+                query.exec( lastRef ? function(err, doc) {
+                  ++i;
+                  queryExec(err, doc);
+                } : function ( err, doc ) {
+                  handleErrors( err, model.modelName, doc, res, function () {
+                    var formatted = formatOne( doc, fieldLimitOptions( req, resource ) );
+                    if ( !formatted ) {
+                      return common.handleError( res, "You can't get this " + resource.path[resource.path.length - 1], 400 );
+                    }
+                    return common.handleSuccess( res, formatted );
+                  } );
+                } );
               });
-            });
+            }
           });
         };
 
@@ -414,7 +432,7 @@ module.exports = function (app, model, resourceOptions) {
                 }
               } );
             }
-            query[resource.field] = new mongoose.Types.ObjectId(params[0]);
+            query[resource.refs[0].field] = new mongoose.Types.ObjectId(params[0]);
             model.find( query, fieldLimitOptions( req, resource ), queryOptions ).lean().exec( function ( err, result ) {
               if ( err ) {
                 return common.handleError( res, err, 400 );
@@ -526,7 +544,10 @@ module.exports = function (app, model, resourceOptions) {
       lastId = resource.ids[lastPathIndex];
 
     for (var i = 0; i < lastPathIndex; i++) {
-      prefix += resource.path[i] + '/:' + resource.ids[i] + '/';
+      prefix += resource.path[i] + '/';
+      if(i === 0 || resource.type !== "ref") {
+        prefix += ':' + resource.ids[i] + '/';
+      }
     }
 
     if (resource.controller.index) {
