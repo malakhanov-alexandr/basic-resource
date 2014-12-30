@@ -477,10 +477,12 @@ module.exports = function (app, model, resourceOptions) {
             if (req.query.draw) {
               result.draw = req.query.draw;
             }
-            model.count(conditions, function (err, count) {
-              return common.handleSuccess(res, format(result, null), {
-                recordsFiltered: result.length,
-                recordsTotal: count
+            model.count(function(err, totalCount) {
+              model.count(conditions, function (err, count) {
+                return common.handleSuccess(res, format(result, null), {
+                  recordsFiltered: count,
+                  recordsTotal: totalCount
+                });
               });
             });
           });
