@@ -1,5 +1,6 @@
 var underscore = require("underscore");
 var common = require("./common.js");
+var mongoose = require('mongoose');
 
 var defaultOptions = {};
 
@@ -15,11 +16,9 @@ function NotFoundError() {
   return this;
 }
 
-var backRefs = {};
-var initCache = {};
-
 /**
  * Get new resource controller
+ * @param app Express application instance
  * @param model Mongoose model for resource to work with
  * @param resourceOptions Resource options
  * @returns {Object} resource object
@@ -30,15 +29,9 @@ module.exports = function (app, model, resourceOptions) {
 
   var modelCache = {};
 
-  initCache[model.modelName] = {
-    app: app,
-    model: model,
-    options: options
-  };
-
-  var resources = findSubDocuments(model.schema, [options.name]);
+  var resources = findSubDocuments(model.schema, [model.schema.plural]);
   resources.unshift({
-    path: [options.name]
+    path: [model.schema.plural]
   });
 
   resources.forEach(function (resource) {
@@ -69,17 +62,16 @@ module.exports = function (app, model, resourceOptions) {
         if (!options.modelResolver) {
           throw new Error("No model resolver in options");
         }
-        modelCache[value.ref] = options.modelResolver(value.ref);
+        if (!modelCache[value.ref]) {
+          modelCache[value.ref] = options.modelResolver(value.ref);
+        }
+        var refModel = modelCache[value.ref];
         var elementPath = underscore.clone(path);
         elementPath.push(i.replace(/id$/i, ""));
-        children.push({path: elementPath, field: i, schema: modelCache[value.ref].schema, type: "ref"});
-        //if(!backRefs[value.ref]) {
-        //  backRefs[value.ref] = [];
-        //}
-        //backRefs[value.ref].push({
-        //  model: model,
-        //  field: i
-        //});
+        children.push({path: elementPath, field: i, schema: refModel.schema, type: "ref"});
+        elementPath = underscore.clone(path);
+        elementPath.unshift(refModel.schema.plural);
+        children.push({path: elementPath, field: i, model: refModel, schema: refModel.schema, type: "backRef"});
       }
     }
     return children;
@@ -376,7 +368,7 @@ module.exports = function (app, model, resourceOptions) {
       }
       case "ref":
       {
-        
+
         controller.index = function (req, res) {
           checkParams(req, res, resource, resource.path.length - 1, function (params) {
             var limit = {"_id": 1};
@@ -394,6 +386,53 @@ module.exports = function (app, model, resourceOptions) {
           });
         };
 
+        break;
+      }
+      case "backRef": {
+
+        controller.index = function (req, res) {
+          checkParams(req, res, resource, resource.path.length - 1, function (params) {
+            var queryOptions = { //TODO: make same DT logic for subs
+              skip: req.query.start,
+              limit: req.query.length
+            };
+            if ( req.query.order ) {
+              queryOptions.sort = {};
+              req.query.order.forEach( function ( order ) {
+                queryOptions.sort[req.query.columns[order.column].data] = order.dir === "desc" ? -1 : 1;
+              } );
+            }
+            var query = {};
+            if ( req.query.search && req.query.search.value && req.query.columns ) {
+              var search = query.$or = [];
+              req.query.columns.forEach( function ( field ) {
+                var name = field.data;
+                if ( model.schema.tree[name] && model.schema.tree[name].type && model.schema.tree[name].type.name === "String" ) {
+                  var fieldSearch = {};
+                  fieldSearch[name] = new RegExp( req.query.search.value, "i" );
+                  search.push( fieldSearch );
+                }
+              } );
+            }
+            query[resource.field] = new mongoose.Types.ObjectId(params[0]);
+            model.find( query, fieldLimitOptions( req, resource ), queryOptions ).lean().exec( function ( err, result ) {
+              if ( err ) {
+                return common.handleError( res, err, 400 );
+              }
+              if ( req.query.draw ) {
+                result.draw = req.query.draw;
+              }
+              model.count( query, function ( err, count ) {
+                return common.handleSuccess( res, format( result, null ), {
+                  recordsFiltered: result.length,
+                  recordsTotal: count
+                } );
+              } );
+            } );
+          });
+        };
+        
+        
         break;
       }
       default:
