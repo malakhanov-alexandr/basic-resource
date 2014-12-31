@@ -21,7 +21,7 @@ function NotFoundError() {
  * @param app Express application instance
  * @param model Mongoose model for resource to work with
  * @param resourceOptions Resource options
- * @returns {Object} resource object
+ * @returns {Array} resources array
  */
 module.exports = function (app, model, resourceOptions) {
 
