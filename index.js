@@ -286,10 +286,6 @@ module.exports = function (app, model, resourceOptions) {
 
     var controller = {};
 
-    function index(req, res, doc) {
-
-    }
-
     switch (resource.type) {
       case "sub":
       {
@@ -452,7 +448,7 @@ module.exports = function (app, model, resourceOptions) {
               if ( req.query.draw ) {
                 result.draw = req.query.draw;
               }
-              model.count( query, function ( err, count ) {
+              model.count( constraints, function ( err, count ) {
                 return common.handleSuccess( res, format( result, null ), {
                   recordsFiltered: result.length,
                   recordsTotal: count
