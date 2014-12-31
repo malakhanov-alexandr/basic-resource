@@ -309,10 +309,14 @@ module.exports = function (app, model, resourceOptions) {
                 if (start || length) {
                   sub = sub.slice(start ? start : 0, length ? (start + length) : sub.length);
                 }
-                return common.handleSuccess(res, format(sub, fieldLimitOptions(req, resource)), {
+                var extra = {
                   recordsFiltered: sub.length,
                   recordsTotal: total
-                });
+                };
+                if (req.query.draw) {
+                  extra.draw = req.query.draw;
+                }
+                return common.handleSuccess(res, format(sub, fieldLimitOptions(req, resource)), extra);
               });
             });
           });
@@ -490,7 +494,7 @@ module.exports = function (app, model, resourceOptions) {
           checkParams(req, res, resource, resource.path.length, function (params) {
             model.findById(params[0], fieldLimitOptions(req, resource)).lean().exec(function (err, doc) {
               handleErrors(err, model.modelName, doc, res, function () {
-                var formatted = formatOne(doc);
+                var formatted = formatOne(doc, null);
                 if (!formatted) {
                   return common.handleError(res, "You can't get this " + model.modelName, 400);
                 }
