@@ -420,7 +420,11 @@ module.exports = function (app, model, resourceOptions) {
                 if (lastRef) {
                   limit[resource.refs[i + 1].field] = 1;
                 }
-                var query = resource.refs[i].model.findById(doc[resource.refs[i].field], limit);
+                var id = doc[resource.refs[i].field];
+                if(!id) {
+                  return common.handleError(res, resource.refs[i].model.modelName + " not specified", 404);
+                }
+                var query = resource.refs[i].model.findById(id, limit);
                 query.exec(lastRef ? function (err, doc) {
                   ++i;
                   queryExec(err, doc);
