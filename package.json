@@ -17,6 +17,7 @@
     "express": "^4.0.0",
     "mongodb": "^1.4.0",
     "mongoose": "^3.8.0",
-    "underscore": "^1.7.0"
+    "underscore": "^1.7.0",
+    "q": "^1.1.2"
   }
 }
