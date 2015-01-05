@@ -96,6 +96,10 @@ function Resource(model, schema, path, type, parent) {
       };
       break;
     }
+    case "backRef": {
+      
+      break;
+    }
     default:
     {
       resource.getAll = function (params) {
@@ -259,6 +263,39 @@ function ResourceController(resource, options) {
         });
       };
 
+      break;
+    }
+    case "backRef": 
+    {
+      controller.index = function (req, res) {
+        checkParams(req, res, 1).then(function (params) {
+          return Q.Promise(function (resolve, reject) {
+            var backRefConstraints = {};
+            backRefConstraints[resource.ids[0]] = params[0];
+            var constraints = underscore.extend(getQueryConstraints(req), backRefConstraints);
+            resource.model.find(constraints, getLimitOptions(req), getQueryOptions(req)).lean().exec(function(err, result) {
+              if (err) {
+                err.code = 400;
+                return reject(err);
+              }
+              
+              resource.model.count(backRefConstraints, function (err, totalCount) {
+                resource.model.count(constraints, function (err, count) {
+                  return common.handleSuccess(res, format(result, null), {
+                    recordsFiltered: count,
+                    recordsTotal: totalCount
+                  });
+                });
+              });
+              
+            });
+          });
+        }).fail(function (err) {
+          handleError(res, err);
+        });
+        
+      };
+      
       break;
     }
     default:
