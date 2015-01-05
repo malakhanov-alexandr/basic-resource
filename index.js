@@ -16,52 +16,26 @@ var defaultGetParams = [{
   paramType: "query"
 }];
 
-function Resource(schema, path, type, parent) {
-  this.schema = schema;
-  this.path = path;
-  this.type = type ? type : "normal";
-  this.children = [];
+function Resource(model, schema, path, type, parent) {
+  var resource = this;
+  resource.model = model;
+  resource.schema = schema;
+  resource.path = path;
+  resource.names = [];
+  resource.ids = [];
+  resource.path.forEach(function (resourceName) {
+    var name = resourceName.replace(/s$/, "");
+    resource.names.push(name);
+    resource.ids.push(name + "Id");
+  });
+  resource.type = type ? type : "normal";
+  resource.children = [];
   if (parent) {
-    this.path = parent.path.concat(this.path);
-    this.parent = parent;
-    this.model = parent.model;
+    resource.path = parent.path.concat(this.path);
+    resource.parent = parent;
+    resource.model = parent.model;
     parent.children.push(this);
   }
-}
-
-function findResources(resource, modelResolver) {
-  var resources = [resource], schemaTree = resource.schema.tree;
-
-  for (var fieldName in schemaTree) {
-    if (!schemaTree.hasOwnProperty(fieldName)) {
-      continue;
-    }
-    var field = schemaTree[fieldName];
-    if (helper.isSubSchema(field)) {
-
-      Array.prototype.push.apply(resources, findResources(new Resource(field[0], [fieldName], "sub", resource)));
-
-    } else if (helper.isRef(field)) {
-
-      if (!modelResolver) {
-        throw new Error("No model resolver specified");
-      }
-
-      var model = modelResolver(field.ref);
-      var refResource = new Resource(model.schema, [fieldName.replace(/id$/i, "")], "ref", resource);
-      refResource.model = model;
-      Array.prototype.push.apply(resources, findResources(refResource));
-
-      var backRefResource = new Resource(model.schema, [model.schema.plural, resource.model.schema.plural], "backRef");
-      resources.push(backRefResource);
-
-    } else if (helper.isSubRef(field)) {
-
-      //TODO: add subRef
-
-    }
-  }
-  return resources;
 }
 
 function ResourceController(resource, options) {
@@ -426,10 +400,10 @@ function bindResource(app, resource, options) {
 
 function getResourceOperations(resource) {
   var summary, operations = [],
-      summaryPostfix = "",
-      pathParams = [],
-      lastPathIndex = resource.path.length - 1,
-      lastPathName = resource.path[lastPathIndex];
+    summaryPostfix = "",
+    pathParams = [],
+    lastPathIndex = resource.path.length - 1,
+    lastPathName = resource.path[lastPathIndex];
 
   for (var i = 0; i < lastPathIndex; i++) {
     summaryPostfix += resource.path[i];
@@ -564,7 +538,7 @@ function getResourceOperations(resource) {
       }]
     });
   }
-  
+
   return operations;
 
   function getOperationNickName(operationPath) {
@@ -572,64 +546,36 @@ function getResourceOperations(resource) {
   }
 }
 
-var helper = {
-  isSubSchema: function (field) {
-    return field instanceof Array && field.length === 1 && field[0].constructor.name === "Schema";
-  },
-  isRef: function (field) {
-    return field.type && field.type.name === "ObjectId" && field.ref;
-  },
-  isSubRef: function (field) {
-    return field instanceof Array && field.length === 1 && this.isRef(field[0]);
-  }
-};
-
-module.exports = function (app, model, resourceOptions) {
+module.exports = function (app, resourceOptions) {
 
   var options = underscore.extend(underscore.clone(defaultOptions), resourceOptions);
-  var modelCache = {
-    get: function (name) {
-      if (typeof this[name] === "undefined") {
-        if (!options.modelResolver) {
-          throw new Error("No model resolver in options");
-        }
-        this[name] = options.modelResolver(name);
-      }
-      return this[name];
-    }
-  };
 
-  if (!model.schema.plural) {
+  var model = options.model;
+  if (!model) {
+    var parent = options.parent;
+    while (!model && parent) {
+      model = parent.model;
+      parent = parent.parent;
+    }
+  }
+  var schema = options.schema;
+  if (!schema) {
+    schema = model.schema;
+  }
+
+  if (!schema.plural) {
     throw new Error("You should specify field 'plural' in model's schema");
   }
 
-  var rootResource = new Resource(model.schema, [model.schema.plural]);
-  rootResource.model = model;
-
-  var resources;
-  if (options.recursive) {
-    resources = findResources(rootResource, options.modelResolver);
-  } else {
-    resources = [rootResource];
+  var resource = new Resource(model, schema, [schema.plural], options.type, options.parent);
+  resource.controller = new ResourceController(resource, options);
+  if (options.controller) {
+    underscore.extend(resource.controller, options.controller);
   }
+  bindResource(app, resource, options);
+  resource.operations = getResourceOperations(resource);
 
-  resources.forEach(function (resource) {
-    resource.names = [];
-    resource.ids = [];
-    resource.path.forEach(function (resourceName) {
-      var name = resourceName.replace(/s$/, "");
-      resource.names.push(name);
-      resource.ids.push(name + "Id");
-    });
-    resource.controller = new ResourceController(resource, options);
-    if (options.controller) {
-      underscore.extend(resource.controller, options.controller);
-    }
-    bindResource(app, resource, options);
-    resource.operations = getResourceOperations(resource);
-  });
-
-  return resources;
+  return resource;
 
 };
 
