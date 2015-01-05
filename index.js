@@ -20,7 +20,15 @@ function Resource(model, schema, path, type, parent) {
   var resource = this;
   resource.model = model;
   resource.schema = schema;
+  resource.type = type ? type : "normal";
+  resource.children = [];
   resource.path = path;
+  if (parent) {
+    resource.path = parent.path.concat(this.path);
+    resource.parent = parent;
+    resource.model = parent.model;
+    parent.children.push(this);
+  }
   resource.names = [];
   resource.ids = [];
   resource.path.forEach(function (resourceName) {
@@ -28,13 +36,62 @@ function Resource(model, schema, path, type, parent) {
     resource.names.push(name);
     resource.ids.push(name + "Id");
   });
-  resource.type = type ? type : "normal";
-  resource.children = [];
-  if (parent) {
-    resource.path = parent.path.concat(this.path);
-    resource.parent = parent;
-    resource.model = parent.model;
-    parent.children.push(this);
+  resource.name = schema.name;
+  switch (resource.type) {
+
+    case "sub":
+    {
+      resource.getParentDoc = function (params) {
+        return resource.parent.getOne(params);
+      };
+      resource.getAll = function (params) {
+        return Q.Promise(function (resolve, reject) {
+          resource.getParentDoc(params).then(function (parentDoc) {
+            resolve(parentDoc[resource.schema.plural]);
+          });
+        });
+      };
+      resource.getOne = function (params) {
+        return Q.Promise(function (resolve, reject) {
+          resource.getAll(params.slice(0, -1)).then(function (result) {
+            var doc = result.id(params[params.length - 1]);
+            if (!doc) {
+              reject(new errors.NotFoundError(resource.schema.name));
+            }
+            resolve(doc);
+          }).fail(function (err) {
+            reject(err);
+          });
+        });
+      };
+      break;
+    }
+    default:
+    {
+      resource.getAll = function (params) {
+        return Q.Promise(function (resolve, reject) {
+          resource.model.find({}, function (err, doc) {
+            if (err) {
+              reject(err);
+            } else {
+              resolve(doc);
+            }
+          });
+        });
+      };
+      resource.getOne = function (params) {
+        return Q.Promise(function (resolve, reject) {
+          resource.model.findById(params[0], function (err, doc) {
+            if (err) {
+              reject(err);
+            } else {
+              resolve(doc);
+            }
+          });
+        });
+      };
+      break;
+    }
   }
 }
 
@@ -42,8 +99,156 @@ function ResourceController(resource, options) {
   var controller = {};
 
   switch (resource.type) {
+    case "sub":
+    {
+
+      controller.index = function (req, res) {
+        checkParams(req, res, resource.path.length - 1).then(function (params) {
+          return resource.getAll(params);
+        }).then(function (result) {
+          return Q.Promise(function (resolve, reject) {
+            var filtered = underscore.where(result, getQueryConstraints(req));
+            common.handleSuccess(res, format(filtered, getLimitOptions(req)), {
+              recordsFiltered: filtered.length,
+              recordsTotal: result.length
+            });
+            resolve(result);
+          });
+        }).fail(function (err) {
+          handleError(res, err);
+        });
+      };
+
+      controller.one = function (req, res) {
+        checkParams(req, res, resource.path.length).then(function (params) {
+          return resource.getOne(params);
+        }).then(function (doc) {
+          return Q.Promise(function (resolve, reject) {
+            if (!doc) {
+              return reject(new errors.NotFoundError(resource.name));
+            }
+            var formatted = formatOne(doc, getLimitOptions(req));
+            if (!formatted) {
+              return reject(new errors.Forbidden());
+            }
+            common.handleSuccess(res, formatted);
+            resolve(doc);
+          });
+        }).fail(function (err) {
+          handleError(res, err);
+        });
+      };
+
+      controller.create = function (req, res) {
+        checkParams(req, res, resource.path.length - 1).then(function (params) {
+          return Q.Promise(function (resolve, reject) {
+            return resource.getParentDoc(params);
+          });
+        }).then(function (parentDoc) {
+          return Q.Promise(function (resolve, reject) {
+            validate(req.body).then(function (data) {
+              parentDoc[resource.schema.plural].push(data);
+              return resource.getTopDoc(params);
+            }).then(function (doc) {
+              return saveDoc(res, doc);
+            }).fail(function (err) {
+              reject(err);
+            });
+          });
+        }).fail(function (err) {
+          handleError(res, err);
+        });
+      };
+
+      controller.update = function (req, res) {
+
+        checkParams(req, res, resource.path.length - 1).then(function (params) {
+          return Q.Promise(function (resolve, reject) {
+            return resource.getParentDoc(params);
+          });
+        }).then(function (parentDoc) {
+          //return resource.
 
 
+          return Q.Promise(function (resolve, reject) {
+            validate(req.body).then(function (data) {
+              parentDoc[resource.schema.plural].push(data);
+              return resource.getTopDoc(params);
+            }).then(function (doc) {
+              return saveDoc(res, doc);
+            }).fail(function (err) {
+              reject(err);
+            });
+          });
+        }).fail(function (err) {
+          handleError(res, err);
+        });
+
+
+        checkParams(req, res, 1).then(function (params) {
+          return Q.Promise(function (resolve, reject) {
+            model.findById(params[0], function (err, doc) {
+              if (err) {
+                err.code = 400;
+                reject(err);
+              } else {
+                resolve(doc);
+              }
+            });
+          });
+        }).then(function (doc) {
+          return Q.Promise(function (resolve, reject) {
+            if (!doc) {
+              reject(new errors.NotFoundError(resource.name));
+            } else {
+              resolve(doc);
+            }
+          });
+        }).then(function (doc) {
+          return Q.Promise(function (resolve, reject) {
+            validate(req.body).then(function (data) {
+              saveDoc(res, underscore.extend(doc, data)).then(function (doc) {
+                resolve(doc);
+              }).fail(function (err) {
+                reject(err);
+              });
+            }).fail(function (err) {
+              reject(err);
+            });
+          });
+        }).fail(function (err) {
+          handleError(res, err);
+        });
+      };
+
+      controller.remove = function (req, res) {
+        checkParams(req, res, 1).then(function (params) {
+          return Q.Promise(function (resolve, reject) {
+            model.findOneAndRemove({_id: params[0]}, function (err, doc) {
+              if (err) {
+                err.code = 400;
+                reject(err);
+              } else {
+                resolve(doc);
+              }
+            });
+          });
+        }).then(function (doc) {
+          return Q.Promise(function (resolve, reject) {
+            if (!doc) {
+              reject(new errors.NotFoundError(resource.name));
+            } else {
+              common.handleSuccess(res);
+              resolve(doc);
+            }
+          });
+        }).fail(function (err) {
+          handleError(res, err);
+        });
+      };
+
+      break;
+    }
     default:
     {
 
@@ -82,7 +287,7 @@ function ResourceController(resource, options) {
         }).then(function (doc) {
           return Q.Promise(function (resolve, reject) {
             if (!doc) {
-              return reject(new errors.NotFoundError(resource.model.modelName));
+              return reject(new errors.NotFoundError(resource.name));
             }
             var formatted = formatOne(doc, null);
             if (!formatted) {
@@ -130,7 +335,7 @@ function ResourceController(resource, options) {
         }).then(function (doc) {
           return Q.Promise(function (resolve, reject) {
             if (!doc) {
-              reject(new errors.NotFoundError(resource.model.modelName));
+              reject(new errors.NotFoundError(resource.name));
             } else {
               resolve(doc);
             }
@@ -167,7 +372,7 @@ function ResourceController(resource, options) {
         }).then(function (doc) {
           return Q.Promise(function (resolve, reject) {
             if (!doc) {
-              reject(new errors.NotFoundError(resource.model.modelName));
+              reject(new errors.NotFoundError(resource.name));
             } else {
               common.handleSuccess(res);
               resolve(doc);
@@ -253,11 +458,13 @@ function ResourceController(resource, options) {
 
 
   function handleError(res, err) {
+    if (!err.code) {
+      common.handleError(res, "Server internal error");
+      setTimeout(function () {
+        throw err;
+      }, 0);
+    }
     return common.handleError(res, err.message, err.code);
-  }
-
-  function handleNotFound(res, modelName) {
-    return common.handleError(res, (modelName ? modelName : resource.model.modelName) + " not found", 404);
   }
 
   /**
@@ -325,7 +532,6 @@ function ResourceController(resource, options) {
 
   /**
    * Validate value object (calling options.validate and handles errors)
-   * @param res Resule
    * @param body Value object
    * @returns {*} Validated value object
    */
