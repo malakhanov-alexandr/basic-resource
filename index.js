@@ -16,15 +16,16 @@ var defaultGetParams = [{
   paramType: "query"
 }];
 
-function Resource(model, schema, path, type, parent) {
+function Resource(model, schema, path, options) {
   var resource = this;
   resource.model = model;
   resource.schema = schema;
-  resource.type = type ? type : "normal";
+  resource.type = options.type ? options.type : "normal";
   resource.children = [];
   resource.path = path;
   resource.names = [schema.name];
   resource.requiredParamsCount = 1;
+  var parent = options.parent;
   if (parent) {
     var current = resource;
     while (current.parent) {
@@ -85,12 +86,14 @@ function Resource(model, schema, path, type, parent) {
       resource.getOne = function (params) {
         return Q.Promise(function (resolve, reject) {
           resource.parent.getOne(params).then(function (parentDoc) {
-            resource.model.findById(parentDoc[resource.ids[resource.ids.length - 1]], function (err, doc) {
+            resource.model.findById(parentDoc[options.refName ? (options.refName + "Id") : resource.ids[resource.ids.length - 1]], function (err, doc) {
               if (!doc) {
                 reject(new errors.NotFoundError(resource.schema.name));
               }
               resolve(doc);
             });
+          } ).fail(function(err) {
+            reject(err);
           });
         });
       };
@@ -245,9 +248,7 @@ function ResourceController(resource, options) {
     {
 
       controller.index = function (req, res) {
-        checkParams(req, res, resource.requiredParamsCount).then(function (params) {
-          return resource.getOne(params);
-        }).then(function (doc) {
+        checkParams(req, res, resource.requiredParamsCount ).then(resource.getOne).then(function (doc) {
           return Q.Promise(function (resolve, reject) {
             if (!doc) {
               return reject(new errors.NotFoundError(resource.name));
@@ -688,10 +689,10 @@ function bindResource(app, resource, options) {
 
 function getResourceOperations(resource) {
   var summary, operations = [],
-    summaryPostfix = "",
     pathParams = [],
     lastPathIndex = resource.path.length - 1,
-    lastPathName = resource.path[lastPathIndex];
+    lastPathName = resource.path[lastPathIndex],
+    summaryPostfix = resource.names[0] + " as ";
 
   for (var i = 0; i < lastPathIndex; i++) {
     summaryPostfix += resource.path[i];
@@ -855,8 +856,14 @@ module.exports = function (app, resourceOptions) {
   if (!schema.plural) {
     throw new Error("You should specify field 'plural' in model's schema");
   }
-
-  var resource = new Resource(options.model, schema, [options.type === "ref" ? schema.name : schema.plural], options.type, options.parent);
+  
+  var pathStart = schema.plural;
+  
+  if(options.type === "ref") {
+    pathStart = options.refName ? options.refName : schema.name;
+  }
+  
+  var resource = new Resource(options.model, schema, [pathStart], options);
   resource.controller = new ResourceController(resource, options);
   if (options.controller) {
     underscore.extend(resource.controller, options.controller);
