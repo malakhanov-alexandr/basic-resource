@@ -96,8 +96,9 @@ function Resource(model, schema, path, type, parent) {
       };
       break;
     }
-    case "backRef": {
-      
+    case "backRef":
+    {
+
       break;
     }
     default:
@@ -180,7 +181,7 @@ function ResourceController(resource, options) {
             var parentsSkipped = modelResource.path.length - 1;
             var subParams = params.slice(parentsSkipped);
             modelResource.getOne(subParams).then(function (modelDoc) {
-              validate(req.body).then(function (data) {
+              parse(req.body).then(function (data) {
                 getSubs(subParams, modelDoc, parentsSkipped).push(data);
                 return saveDoc(res, modelDoc);
               }).fail(function (err) {
@@ -200,7 +201,7 @@ function ResourceController(resource, options) {
             var parentsSkipped = modelResource.path.length - 1;
             var subParams = params.slice(parentsSkipped);
             modelResource.getOne(subParams).then(function (modelDoc) {
-              validate(req.body).then(function (data) {
+              parse(req.body).then(function (data) {
                 var sub = getSub(subParams, modelDoc, parentsSkipped);
                 underscore.extend(sub, data);
                 return saveDoc(res, modelDoc);
@@ -223,7 +224,7 @@ function ResourceController(resource, options) {
             var parentsSkipped = modelResource.path.length - 1;
             var subParams = params.slice(parentsSkipped);
             modelResource.getOne(subParams).then(function (modelDoc) {
-              validate(req.body).then(function (data) {
+              parse(req.body).then(function (data) {
                 getSub(subParams, modelDoc, parentsSkipped).remove();
                 return saveDoc(res, modelDoc);
               }).fail(function (err) {
@@ -265,7 +266,7 @@ function ResourceController(resource, options) {
 
       break;
     }
-    case "backRef": 
+    case "backRef":
     {
       controller.index = function (req, res) {
         checkParams(req, res, 1).then(function (params) {
@@ -273,12 +274,12 @@ function ResourceController(resource, options) {
             var backRefConstraints = {};
             backRefConstraints[resource.ids[0]] = params[0];
             var constraints = underscore.extend(getQueryConstraints(req), backRefConstraints);
-            resource.model.find(constraints, getLimitOptions(req), getQueryOptions(req)).lean().exec(function(err, result) {
+            resource.model.find(constraints, getLimitOptions(req), getQueryOptions(req)).lean().exec(function (err, result) {
               if (err) {
                 err.code = 400;
                 return reject(err);
               }
-              
+
               resource.model.count(backRefConstraints, function (err, totalCount) {
                 resource.model.count(constraints, function (err, count) {
                   return common.handleSuccess(res, format(result, null), {
@@ -287,15 +288,15 @@ function ResourceController(resource, options) {
                   });
                 });
               });
-              
+
             });
           });
         }).fail(function (err) {
           handleError(res, err);
         });
-        
+
       };
-      
+
       break;
     }
     default:
@@ -351,7 +352,7 @@ function ResourceController(resource, options) {
       };
 
       controller.create = function (req, res) {
-        validate(req.body).then(function (data) {
+        parse(req.body).then(function (data) {
           return Q.Promise(function (resolve, reject) {
             var doc;
             try {
@@ -391,7 +392,7 @@ function ResourceController(resource, options) {
           });
         }).then(function (doc) {
           return Q.Promise(function (resolve, reject) {
-            validate(req.body).then(function (data) {
+            parse(req.body).then(function (data) {
               saveDoc(res, underscore.extend(doc, data)).then(function (doc) {
                 resolve(doc);
               }).fail(function (err) {
@@ -534,13 +535,13 @@ function ResourceController(resource, options) {
   }
 
   /**
-   * Format document (calls options.format)
+   * Format doc (calls options.format)
    * @param document Document to format
    * @param fields Fields limit config {@see fieldLimitOptions}
    * @returns {*} format result
    */
-  function formatOne(document, fields) {
-    return limitDocument(typeof options.format === "function" ? options.format(document) : document, fields);
+  function formatOne(doc, fields) {
+    return limitDocument(typeof options.format === "function" ? options.format(doc) : doc, fields);
   }
 
   /**
@@ -579,16 +580,16 @@ function ResourceController(resource, options) {
   }
 
   /**
-   * Validate value object (calling options.validate and handles errors)
+   * Parse value object (calling options.parse and handles errors)
    * @param body Value object
-   * @returns {*} Validated value object
+   * @returns {*} Parsed value object
    */
-  function validate(body) {
+  function parse(body) {
     return Q.Promise(function (resolve, reject) {
       var data = body;
-      if (typeof options.validate === "function") {
+      if (typeof options.parse === "function") {
         try {
-          data = options.validate(data);
+          data = options.parse(data);
         } catch (ex) {
           ex.code = 400;
           return reject(ex);
