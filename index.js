@@ -24,7 +24,15 @@ function Resource(model, schema, path, type, parent) {
   resource.children = [];
   resource.path = path;
   resource.names = [schema.name];
+  resource.requiredParamsCount = 1;
   if (parent) {
+    var current = resource;
+    while (current.parent) {
+      current = current.parent;
+      if (current.type === "sub") {
+        ++resource.requiredParamsCount;
+      }
+    }
     resource.path = parent.path.concat(this.path);
     resource.names = parent.names.concat(this.names);
     resource.parent = parent;
@@ -72,12 +80,12 @@ function Resource(model, schema, path, type, parent) {
       };
       break;
     }
-    case "ref": 
+    case "ref":
     {
       resource.getOne = function (params) {
         return Q.Promise(function (resolve, reject) {
-          resource.parent.getOne(params).then(function(parentDoc) {
-            resource.model.findById(parentDoc[resource.ids[resource.ids.length - 1]], function(err, doc) {
+          resource.parent.getOne(params).then(function (parentDoc) {
+            resource.model.findById(parentDoc[resource.ids[resource.ids.length - 1]], function (err, doc) {
               if (!doc) {
                 reject(new errors.NotFoundError(resource.schema.name));
               }
@@ -212,7 +220,7 @@ function ResourceController(resource, options) {
             var subParams = params.slice(parentsSkipped);
             modelResource.getOne(subParams).then(function (modelDoc) {
               validate(req.body).then(function (data) {
-                getSub(subParams, modelDoc, parentsSkipped ).remove();
+                getSub(subParams, modelDoc, parentsSkipped).remove();
                 return saveDoc(res, modelDoc);
               }).fail(function (err) {
                 reject(err);
@@ -228,10 +236,11 @@ function ResourceController(resource, options) {
 
       break;
     }
-    case "ref": {
+    case "ref":
+    {
 
       controller.index = function (req, res) {
-        checkParams(req, res, resource.path.length - 1).then(function (params) {
+        checkParams(req, res, resource.requiredParamsCount).then(function (params) {
           return resource.getOne(params);
         }).then(function (doc) {
           return Q.Promise(function (resolve, reject) {
@@ -249,7 +258,7 @@ function ResourceController(resource, options) {
           handleError(res, err);
         });
       };
-      
+
       break;
     }
     default:
@@ -458,7 +467,7 @@ function ResourceController(resource, options) {
       resolve(params);
     });
   }
-  
+
   function handleError(res, err) {
     if (!err.code) {
       common.handleError(res, "Server internal error");
@@ -689,7 +698,7 @@ function getResourceOperations(resource) {
     var parameters = underscore.map(pathParams.concat(defaultGetParams), function (param) {
       return underscore.clone(param);
     });
-    if(resource.type === "ref") {
+    if (resource.type === "ref") {
       parameters = underscore.map(pathParams.concat([defaultGetParams[0]]), function (param) {
         return underscore.clone(param);
       });
