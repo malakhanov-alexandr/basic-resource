@@ -72,6 +72,22 @@ function Resource(model, schema, path, type, parent) {
       };
       break;
     }
+    case "ref": 
+    {
+      resource.getOne = function (params) {
+        return Q.Promise(function (resolve, reject) {
+          resource.parent.getOne(params).then(function(parentDoc) {
+            resource.model.findById(parentDoc[resource.ids[resource.ids.length - 1]], function(err, doc) {
+              if (!doc) {
+                reject(new errors.NotFoundError(resource.schema.name));
+              }
+              resolve(doc);
+            });
+          });
+        });
+      };
+      break;
+    }
     default:
     {
       resource.getAll = function (params) {
@@ -210,6 +226,30 @@ function ResourceController(resource, options) {
         });
       };
 
+      break;
+    }
+    case "ref": {
+
+      controller.index = function (req, res) {
+        checkParams(req, res, resource.path.length - 1).then(function (params) {
+          return resource.getOne(params);
+        }).then(function (doc) {
+          return Q.Promise(function (resolve, reject) {
+            if (!doc) {
+              return reject(new errors.NotFoundError(resource.name));
+            }
+            var formatted = formatOne(doc, getLimitOptions(req));
+            if (!formatted) {
+              return reject(new errors.Forbidden());
+            }
+            common.handleSuccess(res, formatted);
+            resolve(doc);
+          });
+        }).fail(function (err) {
+          handleError(res, err);
+        });
+      };
+      
       break;
     }
     default:
@@ -646,14 +686,20 @@ function getResourceOperations(resource) {
     } else {
       summary = "Get all " + lastPathName;
     }
+    var parameters = underscore.map(pathParams.concat(defaultGetParams), function (param) {
+      return underscore.clone(param);
+    });
+    if(resource.type === "ref") {
+      parameters = underscore.map(pathParams.concat([defaultGetParams[0]]), function (param) {
+        return underscore.clone(param);
+      });
+    }
     operations.push({
       path: allPath,
       operations: [{
         method: "GET",
         summary: summary,
-        parameters: underscore.map(pathParams.concat(defaultGetParams), function (param) {
-          return underscore.clone(param);
-        }),
+        parameters: parameters,
         nickname: getOperationNickName(allPath) + "_index"
       }]
     });
@@ -763,7 +809,7 @@ module.exports = function (app, resourceOptions) {
     throw new Error("You should specify field 'plural' in model's schema");
   }
 
-  var resource = new Resource(options.model, schema, [schema.plural], options.type, options.parent);
+  var resource = new Resource(options.model, schema, [options.type === "ref" ? schema.name : schema.plural], options.type, options.parent);
   resource.controller = new ResourceController(resource, options);
   if (options.controller) {
     underscore.extend(resource.controller, options.controller);
