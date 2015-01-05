@@ -694,7 +694,10 @@ function getResourceOperations(resource) {
       operations: [{
         method: "GET",
         summary: summary,
-        parameters: underscore.map(onePathParams, function (param) {
+        parameters: underscore.map(onePathParams.concat([{
+          name: "fields",
+          paramType: "query"
+        }]), function (param) {
           return underscore.clone(param);
         }),
         nickname: getOperationNickName(onePath) + "_one"
