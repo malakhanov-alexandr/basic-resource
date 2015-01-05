@@ -26,7 +26,6 @@ function Resource(model, schema, path, type, parent) {
   if (parent) {
     resource.path = parent.path.concat(this.path);
     resource.parent = parent;
-    resource.model = parent.model;
     parent.children.push(this);
   }
   resource.names = [];
@@ -41,6 +40,14 @@ function Resource(model, schema, path, type, parent) {
 
     case "sub":
     {
+      resource.closestModelResource = function () {
+        var current = resource, i = 0;
+        while (current.parent && !current.model) {
+          current = current.parent;
+          ++i;
+        }
+        return current;
+      };
       resource.getParentDoc = function (params) {
         return resource.parent.getOne(params);
       };
@@ -142,17 +149,16 @@ function ResourceController(resource, options) {
       controller.create = function (req, res) {
         checkParams(req, res, resource.path.length - 1).then(function (params) {
           return Q.Promise(function (resolve, reject) {
-            return resource.getParentDoc(params);
-          });
-        }).then(function (parentDoc) {
-          return Q.Promise(function (resolve, reject) {
-            validate(req.body).then(function (data) {
-              parentDoc[resource.schema.plural].push(data);
-              return resource.getTopDoc(params);
-            }).then(function (doc) {
-              return saveDoc(res, doc);
-            }).fail(function (err) {
-              reject(err);
+            var modelResource = resource.closestModelResource();
+            var parentsSkipped = modelResource.path.length - 1;
+            var subParams = params.slice(parentsSkipped);
+            modelResource.getOne(subParams).then(function (modelDoc) {
+              validate(req.body).then(function (data) {
+                getSubs(subParams, modelDoc, parentsSkipped).push(data);
+                return saveDoc(res, modelDoc);
+              }).fail(function (err) {
+                reject(err);
+              });
             });
           });
         }).fail(function (err) {
@@ -161,54 +167,18 @@ function ResourceController(resource, options) {
       };
 
       controller.update = function (req, res) {
-
-        checkParams(req, res, resource.path.length - 1).then(function (params) {
+        checkParams(req, res, resource.path.length).then(function (params) {
           return Q.Promise(function (resolve, reject) {
-            return resource.getParentDoc(params);
-          });
-        }).then(function (parentDoc) {
-          //return resource.
-
-
-          return Q.Promise(function (resolve, reject) {
-            validate(req.body).then(function (data) {
-              parentDoc[resource.schema.plural].push(data);
-              return resource.getTopDoc(params);
-            }).then(function (doc) {
-              return saveDoc(res, doc);
-            }).fail(function (err) {
-              reject(err);
-            });
-          });
-        }).fail(function (err) {
-          handleError(res, err);
-        });
-
-
-        checkParams(req, res, 1).then(function (params) {
-          return Q.Promise(function (resolve, reject) {
-            model.findById(params[0], function (err, doc) {
-              if (err) {
-                err.code = 400;
-                reject(err);
-              } else {
-                resolve(doc);
-              }
-            });
-          });
-        }).then(function (doc) {
-          return Q.Promise(function (resolve, reject) {
-            if (!doc) {
-              reject(new errors.NotFoundError(resource.name));
-            } else {
-              resolve(doc);
-            }
-          });
-        }).then(function (doc) {
-          return Q.Promise(function (resolve, reject) {
-            validate(req.body).then(function (data) {
-              saveDoc(res, underscore.extend(doc, data)).then(function (doc) {
-                resolve(doc);
+            var modelResource = resource.closestModelResource();
+            var parentsSkipped = modelResource.path.length - 1;
+            var subParams = params.slice(parentsSkipped);
+            modelResource.getOne(subParams).then(function (modelDoc) {
+              validate(req.body).then(function (data) {
+                var sub = getSub(subParams, modelDoc, parentsSkipped);
+                underscore.extend(sub, data);
+                return saveDoc(res, modelDoc);
+              }).then(function (modelDoc) {
+                resolve(modelDoc);
               }).fail(function (err) {
                 reject(err);
               });
@@ -323,7 +293,7 @@ function ResourceController(resource, options) {
       controller.update = function (req, res) {
         checkParams(req, res, 1).then(function (params) {
           return Q.Promise(function (resolve, reject) {
-            model.findById(params[0], function (err, doc) {
+            resource.model.findById(params[0], function (err, doc) {
               if (err) {
                 err.code = 400;
                 reject(err);
@@ -360,7 +330,7 @@ function ResourceController(resource, options) {
       controller.remove = function (req, res) {
         checkParams(req, res, 1).then(function (params) {
           return Q.Promise(function (resolve, reject) {
-            model.findOneAndRemove({_id: params[0]}, function (err, doc) {
+            resource.model.findOneAndRemove({_id: params[0]}, function (err, doc) {
               if (err) {
                 err.code = 400;
                 reject(err);
@@ -554,6 +524,39 @@ function ResourceController(resource, options) {
     });
   }
 
+  /**
+   * Get sub sub document list model based on values of IDs from req and model document.
+   * Param path configured by ChildPath.
+   * @param params Request path params
+   * @param doc Model document
+   * @returns {*} sub document list model
+   */
+  function getSubs(params, doc, startParamIndex) {
+    var current = doc;
+    var last = resource.path.length - 1;
+    for (var i = startParamIndex ? startParamIndex : 1; i < last; i++) {
+      current = current[resource.path[i]].id(params[i]);
+      if (!current) {
+        throw new errors.NotFoundError(resource.path[i]);
+      }
+    }
+    return current[resource.path[last]];
+  }
+
+  /**
+   * Get document from sub document model. See {@link getSubs}
+   * @param params Request path params
+   * @param doc Model document
+   * @returns {*} sub document model
+   */
+  function getSub(params, doc, startParamIndex) {
+    var subs = getSubs(params, doc, startParamIndex);
+    var result = subs.id(params[params.length - 1]);
+    if (!result) {
+      throw new errors.NotFoundError(resource.path[resource.path.length - 1]);
+    }
+    return result;
+  }
 
 }
 
@@ -756,24 +759,16 @@ module.exports = function (app, resourceOptions) {
 
   var options = underscore.extend(underscore.clone(defaultOptions), resourceOptions);
 
-  var model = options.model;
-  if (!model) {
-    var parent = options.parent;
-    while (!model && parent) {
-      model = parent.model;
-      parent = parent.parent;
-    }
-  }
   var schema = options.schema;
-  if (!schema) {
-    schema = model.schema;
+  if (!schema && options.model) {
+    schema = options.model.schema;
   }
 
   if (!schema.plural) {
     throw new Error("You should specify field 'plural' in model's schema");
   }
 
-  var resource = new Resource(model, schema, [schema.plural], options.type, options.parent);
+  var resource = new Resource(options.model, schema, [schema.plural], options.type, options.parent);
   resource.controller = new ResourceController(resource, options);
   if (options.controller) {
     underscore.extend(resource.controller, options.controller);
