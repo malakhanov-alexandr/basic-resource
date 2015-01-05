@@ -23,16 +23,15 @@ function Resource(model, schema, path, type, parent) {
   resource.type = type ? type : "normal";
   resource.children = [];
   resource.path = path;
+  resource.names = [schema.name];
   if (parent) {
     resource.path = parent.path.concat(this.path);
+    resource.names = parent.names.concat(this.names);
     resource.parent = parent;
     parent.children.push(this);
   }
-  resource.names = [];
   resource.ids = [];
-  resource.path.forEach(function (resourceName) {
-    var name = resourceName.replace(/s$/, "");
-    resource.names.push(name);
+  resource.names.forEach(function (name) {
     resource.ids.push(name + "Id");
   });
   resource.name = schema.name;
@@ -177,8 +176,6 @@ function ResourceController(resource, options) {
                 var sub = getSub(subParams, modelDoc, parentsSkipped);
                 underscore.extend(sub, data);
                 return saveDoc(res, modelDoc);
-              }).then(function (modelDoc) {
-                resolve(modelDoc);
               }).fail(function (err) {
                 reject(err);
               });
@@ -192,25 +189,21 @@ function ResourceController(resource, options) {
       };
 
       controller.remove = function (req, res) {
-        checkParams(req, res, 1).then(function (params) {
+        checkParams(req, res, resource.path.length).then(function (params) {
           return Q.Promise(function (resolve, reject) {
-            model.findOneAndRemove({_id: params[0]}, function (err, doc) {
-              if (err) {
-                err.code = 400;
+            var modelResource = resource.closestModelResource();
+            var parentsSkipped = modelResource.path.length - 1;
+            var subParams = params.slice(parentsSkipped);
+            modelResource.getOne(subParams).then(function (modelDoc) {
+              validate(req.body).then(function (data) {
+                getSub(subParams, modelDoc, parentsSkipped ).remove();
+                return saveDoc(res, modelDoc);
+              }).fail(function (err) {
                 reject(err);
-              } else {
-                resolve(doc);
-              }
+              });
+            }).fail(function (err) {
+              reject(err);
             });
-          });
-        }).then(function (doc) {
-          return Q.Promise(function (resolve, reject) {
-            if (!doc) {
-              reject(new errors.NotFoundError(resource.name));
-            } else {
-              common.handleSuccess(res);
-              resolve(doc);
-            }
           });
         }).fail(function (err) {
           handleError(res, err);
@@ -425,8 +418,7 @@ function ResourceController(resource, options) {
       resolve(params);
     });
   }
-
-
+  
   function handleError(res, err) {
     if (!err.code) {
       common.handleError(res, "Server internal error");
@@ -537,7 +529,7 @@ function ResourceController(resource, options) {
     for (var i = startParamIndex ? startParamIndex : 1; i < last; i++) {
       current = current[resource.path[i]].id(params[i]);
       if (!current) {
-        throw new errors.NotFoundError(resource.path[i]);
+        throw new errors.NotFoundError(resource.name[i]);
       }
     }
     return current[resource.path[last]];
@@ -553,7 +545,7 @@ function ResourceController(resource, options) {
     var subs = getSubs(params, doc, startParamIndex);
     var result = subs.id(params[params.length - 1]);
     if (!result) {
-      throw new errors.NotFoundError(resource.path[resource.path.length - 1]);
+      throw new errors.NotFoundError(resource.path[resource.name.length - 1]);
     }
     return result;
   }
