@@ -392,9 +392,10 @@ function ResourceController(resource, options) {
 
       controller.index = function (req, res) {
         var constraints = getQueryConstraints(req);
-        resource.model.find(constraints, getLimitOptions(req), getQueryOptions(req)).lean().exec(function (err, result) {
+        resource.model.find(filterQuery(req, constraints), getLimitOptions(req), getQueryOptions(req)).lean().exec(function (err, result) {
           if (err) {
-            return common.handleError(res, err, 400);
+            err.code = 500;
+            return handleError(err);
           }
           if (req.query.draw) {
             result.draw = req.query.draw;
@@ -560,6 +561,10 @@ function ResourceController(resource, options) {
       });
     }
     return constraints;
+  }
+  
+  function filterQuery(req, query) {
+    return typeof options.query !== "function" ? query : options.query(req, query);
   }
 
   function getLimitOptions(req) {
