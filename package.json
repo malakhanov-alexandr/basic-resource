@@ -1,6 +1,6 @@
 {
   "name": "basic-resource",
-  "version": "1.0.3", 
+  "version": "1.1.0", 
   "description": "module to register basic resources (RESTful route paths and controller methods)",
   "keywords": [
     "resource",
