@@ -1,5 +1,5 @@
 var underscore = require("underscore");
-var common = require("./common.js");
+var common = require("./lib/common.js");
 var mongoose = require('mongoose');
 
 var defaultOptions = {};
