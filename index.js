@@ -311,7 +311,7 @@ function ResourceController(resource, options) {
           handleError(res, err);
         });
       };
-      
+
       //TODO: add subRef edit controllers
       //controller.create = function (req, res) {
       //  if (!req.body.data) {
@@ -392,35 +392,46 @@ function ResourceController(resource, options) {
 
       controller.index = function (req, res) {
         var constraints = getQueryConstraints(req);
-        resource.model.find(filterQuery(req, constraints), getLimitOptions(req), getQueryOptions(req)).lean().exec(function (err, result) {
-          if (err) {
-            err.code = 500;
-            return handleError(err);
-          }
-          if (req.query.draw) {
-            result.draw = req.query.draw;
-          }
-          resource.model.count(function (err, totalCount) {
-            resource.model.count(constraints, function (err, count) {
-              return common.handleSuccess(res, format(result, null), {
-                recordsFiltered: count,
-                recordsTotal: totalCount
+        filterQuery(req, constraints).then(function (query) {
+          resource.model.find(query, getLimitOptions(req), getQueryOptions(req)).lean().exec(function (err, result) {
+            if (err) {
+              err.code = 500;
+              return handleError(err);
+            }
+            if (req.query.draw) {
+              result.draw = req.query.draw;
+            }
+            resource.model.count(function (err, totalCount) {
+              resource.model.count(constraints, function (err, count) {
+                return common.handleSuccess(res, format(result, null), {
+                  recordsFiltered: count,
+                  recordsTotal: totalCount
+                });
               });
             });
           });
+        }).fail(function (err) {
+          handleError(res, err);
         });
       };
 
       controller.one = function (req, res) {
         checkParams(req, res, 1).then(function (params) {
           return Q.Promise(function (resolve, reject) {
-            resource.model.findById(params[0], getLimitOptions(req)).lean().exec(function (err, doc) {
-              if (err) {
-                err.code = 400;
-                reject(err);
-              } else {
-                resolve(doc);
-              }
+            var constraints = {_id: params[0]};
+            filterQuery(req, constraints).then(function (query) {
+              resource.model.findOne(query, getLimitOptions(req)).lean().exec(function (err, doc) {
+                if (err) {
+                  err.code = 400;
+                  reject(err);
+                } else if (!doc) {
+                  reject(new errors.Forbidden());
+                } else {
+                  resolve(doc);
+                }
+              });
+            }).fail(function(err) {
+              handleError(res, new errors.Forbidden());
             });
           });
         }).then(function (doc) {
@@ -562,9 +573,11 @@ function ResourceController(resource, options) {
     }
     return constraints;
   }
-  
+
   function filterQuery(req, query) {
-    return typeof options.query !== "function" ? query : options.query(req, query);
+    return typeof options.query !== "function" ? Q.promise(function (resolve) {
+      resolve(query);
+    }) : options.query(req, query);
   }
 
   function getLimitOptions(req) {
