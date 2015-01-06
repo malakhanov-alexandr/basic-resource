@@ -5,16 +5,18 @@ var errors = require("./errors.js");
 var Q = require("q");
 
 var defaultOptions = {};
-var defaultGetParams = [{
-  name: "fields",
-  paramType: "query"
-}, {
-  name: "start",
-  paramType: "query"
-}, {
-  name: "length",
-  paramType: "query"
-}];
+var defaultGetParams = [
+  {
+    name: "fields",
+    paramType: "query"
+  }, {
+    name: "start",
+    paramType: "query"
+  }, {
+    name: "length",
+    paramType: "query"
+  }
+];
 
 function Resource(model, schema, path, options) {
   var resource = this;
@@ -44,25 +46,34 @@ function Resource(model, schema, path, options) {
     resource.ids.push(name + "Id");
   });
   resource.name = schema.name;
+  resource.closestModelResource = function () {
+    var current = resource, i = 0;
+    while (current.parent && !current.model) {
+      current = current.parent;
+      ++i;
+    }
+    return current;
+  };
+  resource.closestParentModelResource = function () {
+    var current = resource, i = 0;
+    do {
+      current = current.parent;
+      ++i;
+    } while (current.parent && !current.model);
+    return current;
+  };
   switch (resource.type) {
 
     case "sub":
     {
-      resource.closestModelResource = function () {
-        var current = resource, i = 0;
-        while (current.parent && !current.model) {
-          current = current.parent;
-          ++i;
-        }
-        return current;
-      };
+
       resource.getParentDoc = function (params) {
         return resource.parent.getOne(params);
       };
       resource.getAll = function (params) {
         return Q.Promise(function (resolve, reject) {
           resource.getParentDoc(params).then(function (parentDoc) {
-            resolve(parentDoc[resource.schema.plural]);
+            resolve(parentDoc[resource.fieldName]);
           });
         });
       };
@@ -92,8 +103,21 @@ function Resource(model, schema, path, options) {
               }
               resolve(doc);
             });
-          } ).fail(function(err) {
+          }).fail(function (err) {
             reject(err);
+          });
+        });
+      };
+      break;
+    }
+    case "subRef":
+    {
+      resource.getAll = function (params) {
+        return Q.Promise(function (resolve, reject) {
+          resource.parent.getOne(params).then(function (parentDoc) {
+            resource.model.find({_id: {$in: parentDoc[resource.fieldName]}}, function (err, result) {
+              resolve(result);
+            });
           });
         });
       };
@@ -248,7 +272,7 @@ function ResourceController(resource, options) {
     {
 
       controller.index = function (req, res) {
-        checkParams(req, res, resource.requiredParamsCount ).then(resource.getOne).then(function (doc) {
+        checkParams(req, res, resource.requiredParamsCount).then(resource.getOne).then(function (doc) {
           return Q.Promise(function (resolve, reject) {
             if (!doc) {
               return reject(new errors.NotFoundError(resource.name));
@@ -264,6 +288,69 @@ function ResourceController(resource, options) {
           handleError(res, err);
         });
       };
+
+      break;
+    }
+
+    case "subRef":
+    {
+
+      controller.index = function (req, res) {
+        checkParams(req, res, resource.path.length - 1).then(function (params) {
+          return resource.getAll(params);
+        }).then(function (result) {
+          return Q.Promise(function (resolve, reject) {
+            var filtered = underscore.where(result, getQueryConstraints(req));
+            common.handleSuccess(res, format(filtered, getLimitOptions(req)), {
+              recordsFiltered: filtered.length,
+              recordsTotal: result.length
+            });
+            resolve(result);
+          });
+        }).fail(function (err) {
+          handleError(res, err);
+        });
+      };
+      
+      //TODO: add subRef edit controllers
+      //controller.create = function (req, res) {
+      //  if (!req.body.data) {
+      //    var err = new Error("No data specified in request");
+      //    err.code = 400;
+      //    return handleError(res, err);
+      //  }
+      //  if (typeof req.body.data === "string") {
+      //    req.body.data = [req.body.data];
+      //  } else if (!(req.body.data instanceof Array)) {
+      //    var err = new Error("Data expected to be array");
+      //    err.code = 400;
+      //    return handleError(res, err);
+      //  }
+      //  checkParams(req, res, resource.path.length - 1).then(function (params) {
+      //    return Q.Promise(function (resolve, reject) {
+      //      var modelResource = resource.closestParentModelResource();
+      //      var parentsSkipped = modelResource.path.length - 1;
+      //      var subParams = params.slice(parentsSkipped);
+      //      modelResource.getOne(subParams).then(function (modelDoc) {
+      //        var field = getSubs(subParams, modelDoc, parentsSkipped);
+      //        resource.model.find({_id: {$in: req.body.data}}, {_id: 1}, function (err, result) {
+      //          if (err) {
+      //            reject(err);
+      //          } else {
+      //            Array.prototype.push.apply(field, underscore.map(result, function(doc) {
+      //              return doc._id;
+      //            }));
+      //            debugger;
+      //            saveDoc(res, modelDoc);
+      //            resolve(result);
+      //          }
+      //        });
+      //      });
+      //    });
+      //  }).fail(function (err) {
+      //    handleError(res, err);
+      //  });
+      //};
 
       break;
     }
@@ -744,12 +831,14 @@ function getResourceOperations(resource) {
     }
     operations.push({
       path: allPath,
-      operations: [{
-        method: "GET",
-        summary: summary,
-        parameters: parameters,
-        nickname: getOperationNickName(allPath) + "_index"
-      }]
+      operations: [
+        {
+          method: "GET",
+          summary: summary,
+          parameters: parameters,
+          nickname: getOperationNickName(allPath) + "_index"
+        }
+      ]
     });
   }
   if (resource.controller.create) {
@@ -758,16 +847,30 @@ function getResourceOperations(resource) {
     } else {
       summary = "Create new " + lastPathName.replace(/s$/, "");
     }
+    var parameters;
+    if (resource.type === "subRef") {
+      parameters = underscore.map(pathParams, function (param) {
+        return underscore.clone(param);
+      }).concat({
+        name: "data",
+        required: true,
+        paramType: "form"
+      });
+    } else {
+      parameters = underscore.map(combinedParams, function (param) {
+        return underscore.clone(param);
+      });
+    }
     operations.push({
       path: allPath,
-      operations: [{
-        method: "POST",
-        summary: summary,
-        parameters: underscore.map(combinedParams, function (param) {
-          return underscore.clone(param);
-        }),
-        nickname: getOperationNickName(allPath) + "_create"
-      }]
+      operations: [
+        {
+          method: "POST",
+          summary: summary,
+          parameters: parameters,
+          nickname: getOperationNickName(allPath) + "_create"
+        }
+      ]
     });
   }
   var onePath = pathPrefix + lastPathName + '/{' + resource.ids[lastPathIndex] + "}";
@@ -785,17 +888,21 @@ function getResourceOperations(resource) {
     }
     operations.push({
       path: onePath,
-      operations: [{
-        method: "GET",
-        summary: summary,
-        parameters: underscore.map(onePathParams.concat([{
-          name: "fields",
-          paramType: "query"
-        }]), function (param) {
-          return underscore.clone(param);
-        }),
-        nickname: getOperationNickName(onePath) + "_one"
-      }]
+      operations: [
+        {
+          method: "GET",
+          summary: summary,
+          parameters: underscore.map(onePathParams.concat([
+            {
+              name: "fields",
+              paramType: "query"
+            }
+          ]), function (param) {
+            return underscore.clone(param);
+          }),
+          nickname: getOperationNickName(onePath) + "_one"
+        }
+      ]
     });
   }
   if (resource.controller.update) {
@@ -806,14 +913,16 @@ function getResourceOperations(resource) {
     }
     operations.push({
       path: onePath,
-      operations: [{
-        method: "PUT",
-        summary: summary,
-        parameters: underscore.map(onePathParams.concat(modelParams), function (param) {
-          return underscore.clone(param);
-        }),
-        nickname: getOperationNickName(onePath) + "_update"
-      }]
+      operations: [
+        {
+          method: "PUT",
+          summary: summary,
+          parameters: underscore.map(onePathParams.concat(modelParams), function (param) {
+            return underscore.clone(param);
+          }),
+          nickname: getOperationNickName(onePath) + "_update"
+        }
+      ]
     });
   }
   if (resource.controller.remove) {
@@ -826,14 +935,16 @@ function getResourceOperations(resource) {
     }
     operations.push({
       path: onePath,
-      operations: [{
-        method: "DELETE",
-        summary: summary,
-        parameters: underscore.map(onePathParams, function (param) {
-          return underscore.clone(param);
-        }),
-        nickname: getOperationNickName(onePath) + "_remove"
-      }]
+      operations: [
+        {
+          method: "DELETE",
+          summary: summary,
+          parameters: underscore.map(onePathParams, function (param) {
+            return underscore.clone(param);
+          }),
+          nickname: getOperationNickName(onePath) + "_remove"
+        }
+      ]
     });
   }
 
@@ -856,14 +967,19 @@ module.exports = function (app, resourceOptions) {
   if (!schema.plural) {
     throw new Error("You should specify field 'plural' in model's schema");
   }
-  
+
   var pathStart = schema.plural;
-  
-  if(options.type === "ref") {
+
+  if (options.type === "ref" || options.type === "subRef") {
     pathStart = options.refName ? options.refName : schema.name;
   }
-  
+
   var resource = new Resource(options.model, schema, [pathStart], options);
+
+  if (options.type === "ref" || options.type === "subRef") {
+    resource.fieldName = pathStart;
+  }
+
   resource.controller = new ResourceController(resource, options);
   if (options.controller) {
     underscore.extend(resource.controller, options.controller);
