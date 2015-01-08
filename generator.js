@@ -3,10 +3,12 @@ var fs = require('fs');
 var mongoose = require('mongoose');
 
 var names = (fs.readFileSync(__dirname + "/db/names.txt") + "").split(/\n/);
+var surnames = (fs.readFileSync(__dirname + "/db/surnames.txt") + "").split(/\n/);
 var companies = (fs.readFileSync(__dirname + "/db/companies.txt") + "").split(/\n/);
 var streets = (fs.readFileSync(__dirname + "/db/streets.txt") + "").split(/\n/);
 var cities = (fs.readFileSync(__dirname + "/db/cities.txt") + "").split(/\n/);
 var states = (fs.readFileSync(__dirname + "/db/states.txt") + "").split(/\n/);
+var hosts = (fs.readFileSync(__dirname + "/db/hosts.txt") + "").split(/\n/);
 
 
 module.exports = generate;
@@ -94,6 +96,10 @@ function generateName() {
   return names[rand(0, names.length - 1)];
 }
 
+function generateSurname() {
+  return surnames[rand(0, surnames.length - 1)];
+}
+
 function generateCompany() {
   return companies[rand(0, companies.length - 1)];
 }
@@ -122,6 +128,21 @@ function generateDate() {
   return new Date((new Date()).getTime() + rand(-8640000000, +8640000000));
 }
 
+function generateHost() {
+  return hosts[rand(0, hosts.length - 1)];
+}
+  
+  
+function generateEmail() {
+  return generateName() + "@" + generateHost();
+}
+
+function constantGenerator(constant) {
+  return function constantGenerator() {
+    return constant;
+  };
+}
+
 function genericGenerator(objectName) {
   return function genericGenerator(index) {
     return objectName + " " + (index + 1);
@@ -147,6 +168,7 @@ function afterDateGenerator(dateFieldName) {
 
 module.exports.generators = {
   Name: generateName,
+  Surname: generateSurname,
   Company: generateCompany,
   Address: generateAddress,
   City: generateCity,
@@ -154,6 +176,9 @@ module.exports.generators = {
   Zip: generateZip,
   Phone: generatePhone,
   Date: generateDate,
+  Host: generateHost,
+  Email: generateEmail,
+  _constant: constantGenerator,
   _generic: genericGenerator,
   _oneOf: oneOfGenerator,
   _afterDate: afterDateGenerator
