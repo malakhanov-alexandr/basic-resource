@@ -51,27 +51,27 @@ function generate(resource, count, refModels) {
 
         if (resource.schema.tree.hasOwnProperty(fieldName)) {
           var options = resource.schema.tree[fieldName];
-          if (options.type && options.type.name === "ObjectId" && options.ref) {
-            if (!refModels || !refModels[options.ref]) {
-              throw new Error(options.ref + " model not set in refModels argument");
-            }
-            var refModel = refModels[options.ref];
-            return refModel.count(function (err, count) {
-              if (err) {
-                return reject(err);
+          if (options.required || rand(0, 100) > 30) {
+            if (options.type && options.type.name === "ObjectId" && options.ref) {
+              if (!refModels || !refModels[options.ref]) {
+                throw new Error(options.ref + " model not set in refModels argument");
               }
-              var rand = Math.floor(Math.random() * count);
-              refModel.findOne({}, {_id: 1}).skip(rand).exec(function (err, doc) {
+              var refModel = refModels[options.ref];
+              return refModel.count(function (err, count) {
                 if (err) {
-                  reject(err);
-                } else {
-                  data[fieldName] = doc._id;
-                  return next();
+                  return reject(err);
                 }
+                var rand = Math.floor(Math.random() * count);
+                refModel.findOne({}, {_id: 1}).skip(rand).exec(function (err, doc) {
+                  if (err) {
+                    reject(err);
+                  } else {
+                    data[fieldName] = doc._id;
+                    return next();
+                  }
+                });
               });
-            });
-          } else if (typeof options.generator === "function") {
-            if (options.required || rand(0, 100) > 50) {
+            } else if (typeof options.generator === "function") {
               data[fieldName] = options.generator(i, data);
               return next();
             }
@@ -137,7 +137,7 @@ function oneOfGenerator(list) {
 function afterDateGenerator(dateFieldName) {
   var now = (new Date()).getTime();
   return function afterDateGenerator(index, data) {
-    if(!data[dateFieldName]) {
+    if (!data[dateFieldName]) {
       return undefined;
     }
     var minStartDelta = now - data[dateFieldName].getTime();
