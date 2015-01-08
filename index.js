@@ -29,7 +29,7 @@ module.exports = function (app, resourceOptions) {
 
   if (options.type === "ref" || options.type === "subRef") {
     resource.fieldName = pathStart;
-  } else if(options.type === "sub") {
+  } else if (options.type === "sub") {
     resource.fieldName = schema.plural;
   }
 
@@ -37,14 +37,16 @@ module.exports = function (app, resourceOptions) {
   if (options.controller) {
     underscore.extend(resource.controller, options.controller);
   }
-  bind(app, resource, options);
+  if (app) {
+    bind(app, resource, options);
+  }
   resource.operations = swagger.getResourceOperations(resource);
 
   return resource;
 
 };
 
-
+module.exports.generator = require("./generator.js");
 
 
 
