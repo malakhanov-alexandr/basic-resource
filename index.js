@@ -29,6 +29,8 @@ module.exports = function (app, resourceOptions) {
 
   if (options.type === "ref" || options.type === "subRef") {
     resource.fieldName = pathStart;
+  } else if(options.type === "sub") {
+    resource.fieldName = schema.plural;
   }
 
   resource.controller = new Controller(resource, options);
